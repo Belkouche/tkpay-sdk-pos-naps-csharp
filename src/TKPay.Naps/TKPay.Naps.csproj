@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>TKPay.Naps</RootNamespace>
+    <AssemblyName>TKPay.Naps</AssemblyName>
+    <Version>1.0.0</Version>
+    <Authors>TKpay</Authors>
+    <Description>C# SDK for NAPS Pay M2M TLV/TCP terminal integration</Description>
+    <PackageTags>naps;pos;payment;terminal;tkpay</PackageTags>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>TKPay.Naps.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>
