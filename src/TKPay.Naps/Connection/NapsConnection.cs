@@ -121,9 +121,9 @@ internal sealed class NapsConnection : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Read from the stream until the '?' end-of-message terminator is received.
-    /// The NAPS terminal terminates every response with '?'.
-    /// Response is UTF-8 encoded; length fields count Unicode characters.
+    /// Read from the stream until the '?' end-of-message terminator is received,
+    /// or until 1 second of silence after the first chunk (some responses, e.g.
+    /// cancel, have no terminator). Response is UTF-8; length fields count chars.
     /// </summary>
     private static async Task<string> ReadResponseAsync(NetworkStream stream, CancellationToken ct)
     {
@@ -131,17 +131,31 @@ internal sealed class NapsConnection : IAsyncDisposable
         var rawBytes = new List<byte>(bufSize);
         var buf = new byte[bufSize];
 
-        while (true)
+        // First read — block until data arrives (outer timeout via ct)
+        var count = await stream.ReadAsync(buf, ct);
+        if (count == 0)
+            throw NapsException.InvalidResponse("Connection closed before response.");
+
+        rawBytes.AddRange(buf[..count]);
+        var done = buf[count - 1] == (byte)'?';
+
+        // Drain remaining chunks with a 1-second inter-chunk gap
+        while (!done)
         {
-            var count = await stream.ReadAsync(buf, ct);
-            if (count == 0)
-                break;
+            using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            drainCts.CancelAfter(TimeSpan.FromSeconds(1));
 
-            rawBytes.AddRange(buf[..count]);
-
-            // '?' (0x3F) as the last byte signals end-of-message
-            if (buf[count - 1] == (byte)'?')
-                break;
+            try
+            {
+                count = await stream.ReadAsync(buf, drainCts.Token);
+                if (count == 0) break;
+                rawBytes.AddRange(buf[..count]);
+                done = buf[count - 1] == (byte)'?';
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                break; // 1-second silence — treat as end-of-message
+            }
         }
 
         if (rawBytes.Count == 0)
@@ -150,7 +164,7 @@ internal sealed class NapsConnection : IAsyncDisposable
         // Decode as UTF-8 so char-based TLV length fields align with string indices
         var result = Encoding.UTF8.GetString(rawBytes.ToArray());
 
-        // Strip the trailing '?' terminator
+        // Strip the trailing '?' terminator if present
         var qPos = result.LastIndexOf('?');
         return qPos >= 0 ? result[..qPos] : result;
     }
