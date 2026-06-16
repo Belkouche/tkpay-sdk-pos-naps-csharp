@@ -78,7 +78,43 @@ public sealed class NapsPayClient
         // --- Phase 2: Confirmation (same connection, ≤ 40 s) ---
         var phase2Fields = await SendConfirmationAsync(conn, request, phase1Fields, ct);
 
-        return BuildApprovedResult(phase2Fields);
+        return BuildApprovedResult(phase1Fields, phase2Fields);
+    }
+
+    /// <summary>
+    /// Force end-of-day settlement (telecollecte) — TM=010.
+    ///
+    /// <para>
+    /// Sends batch totals to the NAPS server. The terminal must be idle
+    /// ("Attente Caisse") and referencing (TM=013) must have run at least once.
+    /// </para>
+    ///
+    /// <para>
+    /// Common failure codes: "052" = already settled today, "909" = terminal/server down.
+    /// </para>
+    /// </summary>
+    /// <param name="registerId">Register ID (2 digits, e.g. "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, e.g. "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task<SettlementResult> SettlementAsync(
+        string registerId,
+        string cashierId,
+        CancellationToken ct = default)
+    {
+        var ncai = registerId + cashierId;
+        var tlv = TlvProtocol.BuildSettlementRequest(ncai);
+
+        await using var conn = new NapsConnection(_config);
+        await conn.ConnectAsync(ct);
+
+        var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
+        var fields = TlvProtocol.Parse(response);
+
+        var responseCode = fields.GetValueOrDefault(TlvTags.CR, "");
+
+        return responseCode == TlvTags.RcApproved
+            ? SettlementResult.Accepted(fields)
+            : SettlementResult.Declined(responseCode);
     }
 
     /// <summary>
@@ -140,18 +176,20 @@ public sealed class NapsPayClient
     // Result builder
     // -------------------------------------------------------------------------
 
-    private static PaymentResult BuildApprovedResult(IReadOnlyDictionary<string, string> fields)
+    private static PaymentResult BuildApprovedResult(
+        IReadOnlyDictionary<string, string> phase1Fields,
+        IReadOnlyDictionary<string, string> phase2Fields)
     {
         Receipt? merchantReceipt = null;
         Receipt? customerReceipt = null;
 
-        if (fields.TryGetValue(TlvTags.Dp, out var dp))
-        {
-            merchantReceipt = ReceiptParser.Parse(dp, ReceiptType.Merchant);
-            customerReceipt = ReceiptParser.Parse(dp, ReceiptType.Customer);
-        }
+        if (phase1Fields.TryGetValue(TlvTags.Dp, out var merchantDp))
+            merchantReceipt = ReceiptParser.Parse(merchantDp, ReceiptType.Merchant);
 
-        return PaymentResult.Approved(fields, merchantReceipt, customerReceipt);
+        if (phase2Fields.TryGetValue(TlvTags.Dp, out var customerDp))
+            customerReceipt = ReceiptParser.Parse(customerDp, ReceiptType.Customer);
+
+        return PaymentResult.Approved(phase2Fields, merchantReceipt, customerReceipt);
     }
 
     // -------------------------------------------------------------------------
