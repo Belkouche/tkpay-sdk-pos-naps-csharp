@@ -96,7 +96,7 @@ internal sealed class NapsConnection : IAsyncDisposable
         try
         {
             // --- Send ---
-            var bytes = Encoding.ASCII.GetBytes(tlvMessage);
+            var bytes = Encoding.UTF8.GetBytes(tlvMessage);
             await _stream!.WriteAsync(bytes, ct);
             await _stream.FlushAsync(ct);
 
@@ -121,49 +121,38 @@ internal sealed class NapsConnection : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Read from the stream until 1 second of silence (no more bytes).
-    /// NAPS Pay keeps the connection open after sending a response, so we
-    /// detect end-of-message by a short read gap rather than a delimiter.
+    /// Read from the stream until the '?' end-of-message terminator is received.
+    /// The NAPS terminal terminates every response with '?'.
+    /// Response is UTF-8 encoded; length fields count Unicode characters.
     /// </summary>
     private static async Task<string> ReadResponseAsync(NetworkStream stream, CancellationToken ct)
     {
-        const int bufSize = 8192;
+        const int bufSize = 4096;
+        var rawBytes = new List<byte>(bufSize);
         var buf = new byte[bufSize];
-        var sb  = new StringBuilder();
 
-        // First read — block until data arrives (honours the outer timeout via ct)
-        var count = await stream.ReadAsync(buf, ct);
-        if (count == 0)
-            throw NapsException.InvalidResponse("Connection closed before response.");
-
-        sb.Append(Encoding.ASCII.GetString(buf, 0, count));
-
-        // Drain any remaining chunks with a short 1-second inter-chunk gap
-        if (count == bufSize)
+        while (true)
         {
-            while (true)
-            {
-                using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                drainCts.CancelAfter(TimeSpan.FromSeconds(1));
+            var count = await stream.ReadAsync(buf, ct);
+            if (count == 0)
+                break;
 
-                try
-                {
-                    count = await stream.ReadAsync(buf, drainCts.Token);
-                    if (count == 0) break;
-                    sb.Append(Encoding.ASCII.GetString(buf, 0, count));
-                    if (count < bufSize) break;
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    break; // 1-second gap — we have the full message
-                }
-            }
+            rawBytes.AddRange(buf[..count]);
+
+            // '?' (0x3F) as the last byte signals end-of-message
+            if (buf[count - 1] == (byte)'?')
+                break;
         }
 
-        if (sb.Length == 0)
+        if (rawBytes.Count == 0)
             throw NapsException.InvalidResponse("Empty response from terminal.");
 
-        return sb.ToString();
+        // Decode as UTF-8 so char-based TLV length fields align with string indices
+        var result = Encoding.UTF8.GetString(rawBytes.ToArray());
+
+        // Strip the trailing '?' terminator
+        var qPos = result.LastIndexOf('?');
+        return qPos >= 0 ? result[..qPos] : result;
     }
 
     // -------------------------------------------------------------------------

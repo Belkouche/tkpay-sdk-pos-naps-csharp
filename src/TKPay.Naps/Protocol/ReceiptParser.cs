@@ -16,55 +16,46 @@ internal static class ReceiptParser
     internal static Receipt Parse(string dpValue, ReceiptType type)
     {
         var lines = new List<ReceiptLine>();
-        var index = 0;
 
-        string lineNumber = "";
-        string format    = "S";
-        string alignment = "G";
-        string content   = "";
-
-        while (index + 6 <= dpValue.Length)
+        // The terminal separates sub-TLV entry groups with '*'.
+        // Each group is: 030(lineNum) 031(format) 032(alignment) 033(content)
+        // Splitting on '*' avoids digit sequences inside field values being
+        // misinterpreted as TLV tags (e.g. a PAN containing "030002").
+        var entries = dpValue.Split('*');
+        foreach (var entry in entries)
         {
-            var tag    = dpValue.Substring(index, 3);
-            var lenStr = dpValue.Substring(index + 3, 3);
+            if (entry.Length < 6) continue;
 
-            if (!int.TryParse(lenStr, out var length)) break;
-            if (index + 6 + length > dpValue.Length) break;
+            string lineNumber = "";
+            string format    = "S";
+            string alignment = "G";
+            string content   = "";
 
-            var value = dpValue.Substring(index + 6, length);
-
-            switch (tag)
+            var index = 0;
+            while (index + 6 <= entry.Length)
             {
-                case TlvTags.ReceiptLineNumber:
-                    // Flush previous line before starting a new one
-                    if (lineNumber.Length > 0 && content.Length > 0)
-                        lines.Add(MakeLine(lineNumber, content, format, alignment));
+                var tag    = entry.Substring(index, 3);
+                var lenStr = entry.Substring(index + 3, 3);
 
-                    lineNumber = value;
-                    format     = "S";
-                    alignment  = "G";
-                    content    = "";
-                    break;
+                if (!int.TryParse(lenStr, out var length)) break;
+                if (index + 6 + length > entry.Length) break;
 
-                case TlvTags.ReceiptFormat:
-                    format = value;
-                    break;
+                var value = entry.Substring(index + 6, length);
 
-                case TlvTags.ReceiptAlignment:
-                    alignment = value;
-                    break;
+                switch (tag)
+                {
+                    case TlvTags.ReceiptLineNumber: lineNumber = value; break;
+                    case TlvTags.ReceiptFormat:     format    = value; break;
+                    case TlvTags.ReceiptAlignment:  alignment = value; break;
+                    case TlvTags.ReceiptContent:    content   = value; break;
+                }
 
-                case TlvTags.ReceiptContent:
-                    content = value;
-                    break;
+                index += 6 + length;
             }
 
-            index += 6 + length;
+            if (lineNumber.Length > 0)
+                lines.Add(MakeLine(lineNumber, content, format, alignment));
         }
-
-        // Flush the last line
-        if (lineNumber.Length > 0 && content.Length > 0)
-            lines.Add(MakeLine(lineNumber, content, format, alignment));
 
         // TKpay branding + PAN masking
         var branded = ApplyBranding(lines);
