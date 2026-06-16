@@ -92,28 +92,27 @@ internal static class ReceiptParser
     /// </summary>
     private static List<ReceiptLine> ApplyBranding(List<ReceiptLine> lines)
     {
-        var result         = new List<ReceiptLine>(lines.Count + 1);
-        var brandingApplied = false;
+        var result = new List<ReceiptLine>(lines.Count + 1);
 
         foreach (var line in lines)
         {
-            if (!brandingApplied
-                && line.Alignment == Alignment.Center
+            if (line.Alignment == Alignment.Center
                 && line.Text.Contains("Naps", StringComparison.OrdinalIgnoreCase))
             {
                 result.Add(line with { Text = "TKPAY", Bold = true });
-
-                var nextNum = int.TryParse(line.LineNumber, out var n)
-                    ? (n + 1).ToString("D2")
-                    : "00";
-                result.Add(new ReceiptLine(nextNum, "Powered by NAPS", false, Alignment.Center));
-                brandingApplied = true;
             }
             else
             {
                 result.Add(line);
             }
         }
+
+        // Append "Powered by NAPS" as the last line
+        var lastNum = result.Count > 0
+            && int.TryParse(result[^1].LineNumber, out var n)
+                ? (n + 1).ToString("D2")
+                : "99";
+        result.Add(new ReceiptLine(lastNum, "Powered by NAPS", false, Alignment.Center));
 
         return result;
     }
