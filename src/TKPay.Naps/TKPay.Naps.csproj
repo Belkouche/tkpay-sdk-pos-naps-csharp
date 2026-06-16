@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>TKPay.Naps</RootNamespace>
     <AssemblyName>TKPay.Naps</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Authors>TKpay</Authors>
     <Description>C# SDK for NAPS Pay M2M TLV/TCP terminal integration</Description>
     <PackageTags>naps;pos;payment;terminal;tkpay</PackageTags>
