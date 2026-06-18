@@ -2,7 +2,6 @@ namespace TKPay.Naps;
 
 /// <summary>
 /// NAPS Pay M2M TLV tag codes (3-digit numeric strings).
-/// Sourced from decompiled NAPS Pay v5.0.3 ECRTags.java.
 /// </summary>
 internal static class TlvTags
 {
@@ -44,10 +43,12 @@ internal static class TlvTags
     internal const string ReceiptContent   = "033";  // Variable length
 
     // ---- Message types ----
-    internal const string MsgPaymentRequest      = "001";
-    internal const string MsgPaymentResponse     = "101";
-    internal const string MsgConfirmationRequest = "002";
+    internal const string MsgPaymentRequest       = "001";
+    internal const string MsgPaymentResponse      = "101";
+    internal const string MsgConfirmationRequest  = "002";
     internal const string MsgConfirmationResponse = "102";
+    internal const string MsgSettlementRequest    = "010";
+    internal const string MsgSettlementResponse   = "110";
 
     // ---- Currency ----
     internal const string CurrencyMad = "504"; // Moroccan Dirham
