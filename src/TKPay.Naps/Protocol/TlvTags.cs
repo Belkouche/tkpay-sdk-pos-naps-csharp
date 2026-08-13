@@ -47,8 +47,11 @@ internal static class TlvTags
     internal const string MsgPaymentResponse      = "101";
     internal const string MsgConfirmationRequest  = "002";
     internal const string MsgConfirmationResponse = "102";
-    internal const string MsgSettlementRequest    = "010";
-    internal const string MsgSettlementResponse   = "110";
+    internal const string MsgCancellationRequest    = "003";
+    internal const string MsgCancellationResponse   = "103";
+    internal const string MsgCancellationCorrection = "104";
+    internal const string MsgSettlementRequest      = "010";
+    internal const string MsgSettlementResponse     = "110";
 
     // ---- Currency ----
     internal const string CurrencyMad = "504"; // Moroccan Dirham

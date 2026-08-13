@@ -118,6 +118,47 @@ public sealed class NapsPayClient
     }
 
     /// <summary>
+    /// Cancel (void) a previous transaction — TM=003.
+    ///
+    /// <para>
+    /// NapsPay v5.4.4+ requires the original amount (TAG 002) in the frame and
+    /// may respond with MT=104 (correction) in addition to MT=103. Both are success.
+    /// </para>
+    /// </summary>
+    /// <param name="stan">STAN of the transaction to cancel.</param>
+    /// <param name="registerId">Register ID (2 digits).</param>
+    /// <param name="cashierId">Cashier ID (5 digits).</param>
+    /// <param name="sequence">Original sequence number.</param>
+    /// <param name="amountCentimes">Original amount in centimes (required for v5.4.4+).</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task<CancellationResult> CancelAsync(
+        string stan,
+        string registerId,
+        string cashierId,
+        string sequence,
+        long? amountCentimes = null,
+        CancellationToken ct = default)
+    {
+        var ncai = registerId + cashierId;
+        var tlv = TlvProtocol.BuildCancellationRequest(stan, ncai, sequence, amountCentimes);
+
+        await using var conn = new NapsConnection(_config);
+        await conn.ConnectAsync(ct);
+
+        var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
+        var fields = TlvProtocol.Parse(response);
+
+        var rc = fields.GetValueOrDefault(TlvTags.CR, "");
+        var mt = fields.GetValueOrDefault(TlvTags.Tm, "");
+        var isSuccess = rc == TlvTags.RcApproved &&
+                        (mt == TlvTags.MsgCancellationResponse || mt == TlvTags.MsgCancellationCorrection);
+
+        return isSuccess
+            ? CancellationResult.Success(rc, fields.GetValueOrDefault(TlvTags.Stan))
+            : CancellationResult.Failure(rc);
+    }
+
+    /// <summary>
     /// Test whether a TCP connection can be established to the terminal.
     /// </summary>
     /// <returns><c>true</c> if reachable, <c>false</c> otherwise.</returns>

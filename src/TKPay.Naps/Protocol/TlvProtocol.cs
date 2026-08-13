@@ -9,8 +9,9 @@ namespace TKPay.Naps.Protocol;
 /// Format: TAG(3) LENGTH(3) VALUE(n)
 /// Example: 001003001 = Tag "001", Length "003", Value "001"
 /// </summary>
-internal static partial class TlvProtocol
+internal static class TlvProtocol
 {
+    private static readonly Regex _panPattern = new(@"\b\d{16}\b", RegexOptions.Compiled);
     // -------------------------------------------------------------------------
     // Building
     // -------------------------------------------------------------------------
@@ -58,6 +59,40 @@ internal static partial class TlvProtocol
              + BuildField(TlvTags.He,   time)
              + BuildField(TlvTags.Datr, date)
              + BuildField(TlvTags.Hetr, time);
+    }
+
+    /// <summary>
+    /// Build cancellation request TLV (TM=003).
+    ///
+    /// NapsPay v5.4.4+ requires the original amount (TAG 002) in the frame.
+    /// Pass <paramref name="amountCentimes"/> when targeting v5.4.4+.
+    /// </summary>
+    internal static string BuildCancellationRequest(
+        string stan, string ncai, string sequence, long? amountCentimes = null)
+    {
+        var (date, time) = CurrentDateTime();
+        var msg = BuildField(TlvTags.Tm, TlvTags.MsgCancellationRequest);
+        if (amountCentimes.HasValue)
+            msg += BuildField(TlvTags.Mt, amountCentimes.Value.ToString());
+        msg += BuildField(TlvTags.Stan, stan)
+             + BuildField(TlvTags.Ncai, ncai)
+             + BuildField(TlvTags.Nsa,  sequence)
+             + BuildField(TlvTags.Da,   date)
+             + BuildField(TlvTags.He,   time);
+        return msg;
+    }
+
+    /// <summary>
+    /// Build settlement request TLV (TM=010 — telecollecte / end-of-day batch).
+    /// </summary>
+    internal static string BuildSettlementRequest(string ncai)
+    {
+        var (date, time) = CurrentDateTime();
+
+        return BuildField(TlvTags.Tm,   TlvTags.MsgSettlementRequest)
+             + BuildField(TlvTags.Ncai, ncai)
+             + BuildField(TlvTags.Da,   date)
+             + BuildField(TlvTags.He,   time);
     }
 
     // -------------------------------------------------------------------------
@@ -111,10 +146,7 @@ internal static partial class TlvProtocol
 
     /// <summary>Mask any 16-digit card numbers found in free text (e.g. receipt lines).</summary>
     internal static string MaskCardNumbersInText(string text) =>
-        PanPattern().Replace(text, m => MaskCardNumber(m.Value));
-
-    [GeneratedRegex(@"\b\d{16}\b")]
-    private static partial Regex PanPattern();
+        _panPattern.Replace(text, m => MaskCardNumber(m.Value));
 
     // -------------------------------------------------------------------------
     // Date / Time helpers

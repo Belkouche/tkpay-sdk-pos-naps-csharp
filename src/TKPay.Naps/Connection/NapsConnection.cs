@@ -121,9 +121,9 @@ internal sealed class NapsConnection : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Read from the stream until the '?' end-of-message terminator is received,
-    /// or until 1 second of silence after the first chunk (some responses, e.g.
-    /// cancel, have no terminator). Response is UTF-8; length fields count chars.
+    /// Read from the stream until the '!' end-of-message terminator is received,
+    /// or until 1 second of silence after the first chunk (fallback for partial frames).
+    /// Response is UTF-8; length fields count chars.
     /// </summary>
     private static async Task<string> ReadResponseAsync(NetworkStream stream, CancellationToken ct)
     {
@@ -137,7 +137,7 @@ internal sealed class NapsConnection : IAsyncDisposable
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf[..count]);
-        var done = buf[count - 1] == (byte)'?';
+        var done = buf[count - 1] == (byte)'!';
 
         // Drain remaining chunks with a 1-second inter-chunk gap
         while (!done)
@@ -150,7 +150,7 @@ internal sealed class NapsConnection : IAsyncDisposable
                 count = await stream.ReadAsync(buf, drainCts.Token);
                 if (count == 0) break;
                 rawBytes.AddRange(buf[..count]);
-                done = buf[count - 1] == (byte)'?';
+                done = buf[count - 1] == (byte)'!';
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
@@ -164,9 +164,9 @@ internal sealed class NapsConnection : IAsyncDisposable
         // Decode as UTF-8 so char-based TLV length fields align with string indices
         var result = Encoding.UTF8.GetString(rawBytes.ToArray());
 
-        // Strip the trailing '?' terminator if present
-        var qPos = result.LastIndexOf('?');
-        return qPos >= 0 ? result[..qPos] : result;
+        // Strip the trailing '!' terminator if present
+        var bangPos = result.LastIndexOf('!');
+        return bangPos >= 0 ? result[..bangPos] : result;
     }
 
     // -------------------------------------------------------------------------
