@@ -57,7 +57,18 @@ internal sealed class NapsConnection : ITerminalConnection
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             connectCts.CancelAfter(_config.Timeout);
 
+#if NET5_0_OR_GREATER
             await _tcp.ConnectAsync(_config.Host, _config.Port, connectCts.Token);
+#else
+            // net48 TcpClient has no cancellable ConnectAsync; race the connect
+            // against the linked timeout token so the same timeout behaviour holds.
+            var connectTask = _tcp.ConnectAsync(_config.Host, _config.Port);
+            var completed = await Task.WhenAny(
+                connectTask, Task.Delay(Timeout.Infinite, connectCts.Token));
+            if (completed != connectTask)
+                connectCts.Token.ThrowIfCancellationRequested();
+            await connectTask;
+#endif
             _stream = _tcp.GetStream();
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
@@ -101,7 +112,11 @@ internal sealed class NapsConnection : ITerminalConnection
         {
             // --- Send ---
             var bytes = Encoding.UTF8.GetBytes(tlvMessage);
+#if NET5_0_OR_GREATER
             await _stream!.WriteAsync(bytes, ct);
+#else
+            await _stream!.WriteAsync(bytes, 0, bytes.Length, ct);
+#endif
             await _stream.FlushAsync(ct);
 
             // --- Receive ---
@@ -141,11 +156,15 @@ internal sealed class NapsConnection : ITerminalConnection
         var buf = new byte[bufSize];
 
         // First read — block until data arrives (outer timeout via ct)
+#if NET5_0_OR_GREATER
         var count = await stream.ReadAsync(buf, ct);
+#else
+        var count = await stream.ReadAsync(buf, 0, buf.Length, ct);
+#endif
         if (count == 0)
             throw NapsException.InvalidResponse("Connection closed before response.");
 
-        rawBytes.AddRange(buf[..count]);
+        rawBytes.AddRange(buf.Take(count));
         var done = IsTerminator(buf[count - 1]);
 
         // Drain remaining chunks with a 1-second inter-chunk gap
@@ -156,9 +175,13 @@ internal sealed class NapsConnection : ITerminalConnection
 
             try
             {
+#if NET5_0_OR_GREATER
                 count = await stream.ReadAsync(buf, drainCts.Token);
+#else
+                count = await stream.ReadAsync(buf, 0, buf.Length, drainCts.Token);
+#endif
                 if (count == 0) break;
-                rawBytes.AddRange(buf[..count]);
+                rawBytes.AddRange(buf.Take(count));
                 done = IsTerminator(buf[count - 1]);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -191,7 +214,12 @@ internal sealed class NapsConnection : ITerminalConnection
     {
         if (_stream is not null)
         {
+#if NET5_0_OR_GREATER
             try { await _stream.DisposeAsync(); } catch { /* ignore */ }
+#else
+            try { _stream.Dispose(); } catch { /* ignore */ }
+            await Task.CompletedTask;
+#endif
             _stream = null;
         }
 

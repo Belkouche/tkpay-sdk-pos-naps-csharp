@@ -71,7 +71,9 @@ public static class PortDiscovery
         catch { return null; }
     }
 
+#if NET5_0_OR_GREATER
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+#endif
     private static string? FindOnWindows()
     {
         // Scan the registry for USB serial ports with the Ingenico VID.

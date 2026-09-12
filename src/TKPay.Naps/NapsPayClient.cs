@@ -61,9 +61,9 @@ public sealed class NapsPayClient
         PaymentRequest request,
         CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
+        if (request is null) throw new ArgumentNullException(nameof(request));
 
-        await using var conn = ITerminalConnection.Create(_config);
+        await using var conn = TerminalConnection.Create(_config);
         await conn.ConnectAsync(ct);
 
         // --- Phase 1: Payment Request ---
@@ -104,7 +104,7 @@ public sealed class NapsPayClient
         var ncai = registerId + cashierId;
         var tlv = TlvProtocol.BuildSettlementRequest(ncai);
 
-        await using var conn = ITerminalConnection.Create(_config);
+        await using var conn = TerminalConnection.Create(_config);
         await conn.ConnectAsync(ct);
 
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
@@ -142,7 +142,7 @@ public sealed class NapsPayClient
         var ncai = registerId + cashierId;
         var tlv = TlvProtocol.BuildCancellationRequest(stan, ncai, sequence, amountCentimes);
 
-        await using var conn = ITerminalConnection.Create(_config);
+        await using var conn = TerminalConnection.Create(_config);
         await conn.ConnectAsync(ct);
 
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
@@ -166,7 +166,7 @@ public sealed class NapsPayClient
     {
         try
         {
-            await using var conn = ITerminalConnection.Create(_config);
+            await using var conn = TerminalConnection.Create(_config);
             await conn.ConnectAsync(ct);
             return conn.IsConnected;
         }
@@ -174,6 +174,143 @@ public sealed class NapsPayClient
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Network test / ping (TM=009). Verifies the terminal can reach the NAPS host.
+    /// </summary>
+    /// <param name="registerId">Register ID (2 digits, default "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task<NetworkTestResult> NetworkTestAsync(
+        string registerId = "01",
+        string cashierId = "00001",
+        CancellationToken ct = default)
+    {
+        var fields = await SendManagementAsync(
+            TlvProtocol.BuildNetworkTestRequest(registerId + cashierId, GenerateSequence()), ct);
+        var rc = fields.GetValueOrDefault(TlvTags.CR, "");
+        return new NetworkTestResult
+        {
+            Success = rc == TlvTags.RcApproved,
+            ResponseCode = rc,
+            Message = rc == TlvTags.RcApproved ? "Network OK" : TlvProtocol.DescribeResponse(rc)
+        };
+    }
+
+    /// <summary>
+    /// Referencing (TM=013) — loads a terminal parameter set. Sends the TIDE (020)
+    /// selecting the set to load.
+    /// </summary>
+    /// <param name="tide">Parameter set: "01" merchant (default), "02" recharge.</param>
+    /// <param name="registerId">Register ID (2 digits, default "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task<ReferencingResult> ReferencingAsync(
+        string tide = TlvTags.TideMerchant,
+        string registerId = "01",
+        string cashierId = "00001",
+        CancellationToken ct = default)
+    {
+        var fields = await SendManagementAsync(
+            TlvProtocol.BuildReferencingRequest(tide, registerId + cashierId, GenerateSequence()), ct);
+        var rc = fields.GetValueOrDefault(TlvTags.CR, "");
+        return new ReferencingResult
+        {
+            Success = rc == TlvTags.RcApproved,
+            ResponseCode = rc,
+            ParameterSet = tide,
+            ReceiptText = fields.GetValueOrDefault(TlvTags.Dp)
+        };
+    }
+
+    /// <summary>
+    /// Totals report (TM=010). Requests the terminal's running batch totals.
+    /// </summary>
+    /// <param name="registerId">Register ID (2 digits, default "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task<TotalsResult> TotalsAsync(
+        string registerId = "01",
+        string cashierId = "00001",
+        CancellationToken ct = default)
+    {
+        var fields = await SendManagementAsync(
+            TlvProtocol.BuildTotalsRequest(registerId + cashierId, GenerateSequence()), ct);
+        var rc = fields.GetValueOrDefault(TlvTags.CR, "");
+        return new TotalsResult
+        {
+            Success = rc == TlvTags.RcApproved,
+            ResponseCode = rc,
+            ReceiptText = fields.GetValueOrDefault(TlvTags.Dp)
+        };
+    }
+
+    /// <summary>
+    /// Duplicate receipt / reprint (TM=008). Reprints the last transaction's receipt.
+    /// </summary>
+    /// <param name="registerId">Register ID (2 digits, default "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task<PaymentResult> DuplicateReceiptAsync(
+        string registerId = "01",
+        string cashierId = "00001",
+        CancellationToken ct = default)
+    {
+        var fields = await SendManagementAsync(
+            TlvProtocol.BuildDuplicateReceiptRequest(registerId + cashierId, GenerateSequence()), ct);
+        var rc = fields.GetValueOrDefault(TlvTags.CR, "");
+
+        if (rc == TlvTags.RcApproved)
+        {
+            Receipt? merchantReceipt = null;
+            if (fields.TryGetValue(TlvTags.Dp, out var dp))
+                merchantReceipt = ReceiptParser.Parse(dp, ReceiptType.Merchant);
+            return PaymentResult.Approved(fields, merchantReceipt, null);
+        }
+
+        return PaymentResult.Failed(rc, fields);
+    }
+
+    /// <summary>
+    /// Reset the PIN pad (TM=012). Fire-and-forget maintenance command.
+    /// </summary>
+    /// <param name="registerId">Register ID (2 digits, default "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public async Task ResetPinPadAsync(
+        string registerId = "01",
+        string cashierId = "00001",
+        CancellationToken ct = default)
+    {
+        await SendManagementAsync(
+            TlvProtocol.BuildResetPinpadRequest(registerId + cashierId, GenerateSequence()), ct);
+    }
+
+    /// <summary>
+    /// Auto-discover the terminal serial port (Ingenico Lane/3000, USB serial),
+    /// or <c>null</c> if none is found.
+    /// </summary>
+    public static string? FindPort() => PortDiscovery.FindIngenicoPort();
+
+    /// <summary>List all available serial ports.</summary>
+    public static string[] ListPorts() => PortDiscovery.ListPorts();
+
+    // -------------------------------------------------------------------------
+    // Management-op transport helper
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Open a connection, send a single management TLV frame and parse the response.
+    /// The connection is opened and closed automatically.
+    /// </summary>
+    private async Task<Dictionary<string, string>> SendManagementAsync(
+        string tlv, CancellationToken ct)
+    {
+        await using var conn = TerminalConnection.Create(_config);
+        await conn.ConnectAsync(ct);
+        var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
+        return TlvProtocol.Parse(response);
     }
 
     // -------------------------------------------------------------------------

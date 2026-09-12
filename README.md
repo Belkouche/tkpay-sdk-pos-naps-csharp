@@ -1,10 +1,14 @@
 # TKPay NAPS POS SDK — C#
 
 C# SDK for integrating NAPS Pay terminals via the M2M TLV protocol, over TCP
-(Sunmi P2/P3, port 4444) or USB serial (Ingenico Lane/3000, CDC-ACM).
+(Sunmi P2/P3, port 4444) or USB serial (Ingenico Lane/3000, CDC-ACM). Targets
+`net10.0`, `net9.0` and `net48` (.NET Framework 4.8).
 
-- .NET 6+ / .NET Standard compatible
+- Multi-targeted: **`net10.0` / `net9.0` / `net48`** (.NET Framework 4.8)
 - Two transports: TCP socket (default) and USB serial with port auto-discovery
+- Full payment API plus management operations (network test, referencing, totals,
+  duplicate receipt, reset PIN pad)
+- Binary TLV (Sunmi) protocol and a public ASCII wire-format facade
 - Fully `async/await` — no blocking calls
 - PCI DSS compliant — PAN masked immediately on parse (first 6 + last 4 only)
 - Two-phase payment flow handled automatically
@@ -169,6 +173,76 @@ Console.WriteLine(reachable ? "Terminal reachable" : "Cannot connect");
 
 ---
 
+## Management Operations
+
+Beyond payments, the client exposes the NAPS Pay management operations. Each opens
+and closes its own connection and returns a typed result.
+
+```csharp
+// Network test / ping (TM=009)
+var net = await client.NetworkTestAsync();
+Console.WriteLine(net.Success ? "Network OK" : $"Failed [{net.ResponseCode}]: {net.Message}");
+
+// Referencing — load a parameter set (TM=013). TIDE "01" = merchant, "02" = recharge.
+var refr = await client.ReferencingAsync(tide: "01");
+Console.WriteLine($"Referencing [{refr.ResponseCode}] set={refr.ParameterSet}");
+
+// Totals report (TM=010)
+var totals = await client.TotalsAsync();
+Console.WriteLine(totals.ReceiptText);
+
+// Reprint last receipt (TM=008) — returns a PaymentResult
+var dup = await client.DuplicateReceiptAsync();
+Console.WriteLine(dup.MerchantReceipt?.ToPlainText());
+
+// Reset the PIN pad (TM=012) — fire-and-forget
+await client.ResetPinPadAsync();
+```
+
+| Method | TM | Returns |
+|---|---|---|
+| `NetworkTestAsync` | 009 | `NetworkTestResult { Success, ResponseCode, Message }` |
+| `ReferencingAsync(tide = "01")` | 013 | `ReferencingResult { Success, ResponseCode, ParameterSet, ReceiptText }` |
+| `TotalsAsync` | 010 | `TotalsResult { Success, ResponseCode, ReceiptText }` |
+| `DuplicateReceiptAsync` | 008 | `PaymentResult` |
+| `ResetPinPadAsync` | 012 | `Task` |
+
+Static port helpers are also available without constructing a client:
+
+```csharp
+string[] all  = NapsPayClient.ListPorts();  // all serial ports
+string?  port = NapsPayClient.FindPort();    // best Ingenico match, or null
+```
+
+---
+
+## Protocol access (ASCII + binary TLV)
+
+The internal builder/parser (`TlvProtocol`) stays internal, but the wire format is
+available through two public types in `TKPay.Naps.Protocol`:
+
+- **`NapsTlv`** — ASCII TLV facade: `BuildField`, `Parse`, `IsApproved`,
+  `DescribeResponse`, `MaskPan`, `MaskPansInText`.
+- **`BinaryTlvProtocol`** — binary framing for some Sunmi deployments:
+  `tag(1) + length(2 BE) + value(N)` with a 2-byte big-endian length prefix.
+  `BuildRequest`, `WrapWithLength`, `ParseResponse`.
+
+```csharp
+using TKPay.Naps.Protocol;
+
+// ASCII TLV
+var frame  = NapsTlv.BuildField("001", "001");
+var fields = NapsTlv.Parse(response);
+bool ok    = NapsTlv.IsApproved(fields.GetValueOrDefault("013"));
+
+// Binary TLV (Sunmi)
+var body    = BinaryTlvProtocol.BuildRequest(BinaryTlvProtocol.TxnTypeSale, "15000", "ORDER-1");
+var wire     = BinaryTlvProtocol.WrapWithLength(body);
+var response = BinaryTlvProtocol.ParseResponse(bodyBytes);
+```
+
+---
+
 ## Error Handling
 
 ```csharp
@@ -272,24 +346,35 @@ foreach (var line in receipt.Lines)
 
 ```
 tkpay-sdk-pos-naps-csharp/
-├── src/TKPay.Naps/
-│   ├── NapsPayClient.cs          # Main entry point
+├── src/TKPay.Naps/                       # net10.0;net9.0;net48
+│   ├── NapsPayClient.cs          # Main entry point (payments + management ops)
 │   ├── Models/
 │   │   ├── NapsConfig.cs         # Connection configuration
 │   │   ├── NapsError.cs          # NapsException + NapsErrorCode
 │   │   ├── PaymentRequest.cs     # Request data
 │   │   ├── PaymentResult.cs      # Result data
+│   │   ├── SettlementResult.cs / CancellationResult.cs
+│   │   ├── NetworkTestResult.cs / ReferencingResult.cs / TotalsResult.cs
 │   │   └── Receipt.cs            # Receipt + ReceiptLine + enums
 │   ├── Protocol/
-│   │   ├── TlvTags.cs            # Tag constants
-│   │   ├── TlvProtocol.cs        # TLV builder + parser + PAN masking
+│   │   ├── TlvTags.cs            # Tag + message-type constants
+│   │   ├── TlvProtocol.cs        # ASCII TLV builder + parser + PAN masking (internal)
+│   │   ├── NapsTlv.cs            # Public ASCII wire-format facade
+│   │   ├── BinaryTlvProtocol.cs  # Public binary (Sunmi) TLV protocol
 │   │   └── ReceiptParser.cs      # DP sub-TLV receipt parser
+│   ├── Polyfills/                # net48 source shims (IsExternalInit, Index/Range, compat)
 │   └── Connection/
-│       └── NapsConnection.cs     # TCP socket management
+│       ├── NapsConnection.cs     # TCP socket management
+│       ├── SerialConnection.cs   # USB serial (CDC-ACM)
+│       └── PortDiscovery.cs      # Cross-platform serial port discovery
 └── tests/TKPay.Naps.Tests/
     ├── TlvProtocolTests.cs
+    ├── ManagementRequestTests.cs
+    ├── BinaryTlvProtocolTests.cs
+    ├── NapsTlvFacadeTests.cs
     ├── PaymentRequestTests.cs
-    └── PaymentResultTests.cs
+    ├── PaymentResultTests.cs
+    └── SerialTransportTests.cs
 ```
 
 ---
@@ -313,7 +398,7 @@ dotnet pack src/TKPay.Naps/TKPay.Naps.csproj -c Release
 
 ## Requirements
 
-- .NET 6.0+
+- .NET 9.0+ or .NET 10.0 (also builds for .NET Framework 4.8 via `net48`)
 - Network access to NAPS Pay terminal (same LAN, port 4444)
 
 ---

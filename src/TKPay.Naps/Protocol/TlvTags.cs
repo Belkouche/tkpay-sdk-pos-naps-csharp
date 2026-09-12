@@ -52,6 +52,15 @@ internal static class TlvTags
     internal const string MsgCancellationCorrection = "104";
     internal const string MsgSettlementRequest      = "010";
     internal const string MsgSettlementResponse     = "110";
+    internal const string MsgDuplicateReceipt       = "008"; // Reprint last receipt
+    internal const string MsgNetworkTest            = "009"; // Ping / network test
+    internal const string MsgTotals                 = "010"; // Totals report (shares TM with settlement)
+    internal const string MsgResetPinpad            = "012"; // Reset the PIN pad
+    internal const string MsgReferencing            = "013"; // Load parameter set (referencement)
+
+    // ---- TIDE parameter sets (TM 013 Referencing) ----
+    internal const string TideMerchant = "01"; // Merchant parameter set
+    internal const string TideRecharge = "02"; // Recharge parameter set
 
     // ---- Currency ----
     internal const string CurrencyMad = "504"; // Moroccan Dirham

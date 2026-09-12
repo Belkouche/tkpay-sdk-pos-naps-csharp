@@ -20,9 +20,13 @@ internal interface ITerminalConnection : IAsyncDisposable
 
     /// <summary>Write a TLV message and read the full response until the terminator.</summary>
     Task<string> SendAndReceiveAsync(string tlvMessage, TimeSpan timeout, CancellationToken ct = default);
+}
 
+/// <summary>Factory for the terminal connection matching a config's transport.</summary>
+internal static class TerminalConnection
+{
     /// <summary>Create the connection for a config's transport.</summary>
-    static ITerminalConnection Create(NapsConfig config) => config.Transport switch
+    internal static ITerminalConnection Create(NapsConfig config) => config.Transport switch
     {
         TransportType.TcpSocket => new NapsConnection(config),
         TransportType.UsbSerial => new SerialConnection(config),

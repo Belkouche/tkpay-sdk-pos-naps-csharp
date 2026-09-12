@@ -18,7 +18,7 @@ internal static class TlvProtocol
     // -------------------------------------------------------------------------
 
     /// <summary>CR (013) codes that indicate an approval.</summary>
-    internal static readonly IReadOnlySet<string> ApprovedCodes =
+    internal static readonly HashSet<string> ApprovedCodes =
         new HashSet<string>(StringComparer.Ordinal) { "000", "001", "003", "007" };
 
     /// <summary>
@@ -174,6 +174,61 @@ internal static class TlvProtocol
              + BuildField(TlvTags.Da,   date)
              + BuildField(TlvTags.He,   time);
     }
+
+    // -------------------------------------------------------------------------
+    // Management / maintenance requests (TM 008/009/010/012/013)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Build a management-operation TLV frame: TM + NCAI + NS + DA + HE (+ optional
+    /// extra fields). Used by the network test, totals, duplicate-receipt, reset and
+    /// referencing operations, which carry no amount.
+    /// </summary>
+    internal static string BuildManagementRequest(
+        string tm,
+        string ncai = "0100001",
+        string sequence = "000001",
+        IEnumerable<(string tag, string value)>? extraFields = null)
+    {
+        var (date, time) = CurrentDateTime();
+
+        var msg = BuildField(TlvTags.Tm,   tm)
+                + BuildField(TlvTags.Ncai, ncai)
+                + BuildField(TlvTags.Ns,   sequence)
+                + BuildField(TlvTags.Da,   date)
+                + BuildField(TlvTags.He,   time);
+
+        if (extraFields != null)
+            foreach (var (tag, value) in extraFields)
+                msg += BuildField(tag, value);
+
+        return msg;
+    }
+
+    /// <summary>Build a network-test request (TM=009).</summary>
+    internal static string BuildNetworkTestRequest(string ncai = "0100001", string sequence = "000001") =>
+        BuildManagementRequest(TlvTags.MsgNetworkTest, ncai, sequence);
+
+    /// <summary>
+    /// Build a referencing request (TM=013) — loads a parameter set on the terminal.
+    /// Carries the TIDE (020) selecting the set: "01" merchant, "02" recharge.
+    /// </summary>
+    internal static string BuildReferencingRequest(
+        string tide = TlvTags.TideMerchant, string ncai = "0100001", string sequence = "000001") =>
+        BuildManagementRequest(TlvTags.MsgReferencing, ncai, sequence,
+            new[] { (TlvTags.Tide, tide) });
+
+    /// <summary>Build a totals-report request (TM=010).</summary>
+    internal static string BuildTotalsRequest(string ncai = "0100001", string sequence = "000001") =>
+        BuildManagementRequest(TlvTags.MsgTotals, ncai, sequence);
+
+    /// <summary>Build a duplicate-receipt (reprint) request (TM=008).</summary>
+    internal static string BuildDuplicateReceiptRequest(string ncai = "0100001", string sequence = "000001") =>
+        BuildManagementRequest(TlvTags.MsgDuplicateReceipt, ncai, sequence);
+
+    /// <summary>Build a reset-PIN-pad request (TM=012).</summary>
+    internal static string BuildResetPinpadRequest(string ncai = "0100001", string sequence = "000001") =>
+        BuildManagementRequest(TlvTags.MsgResetPinpad, ncai, sequence);
 
     // -------------------------------------------------------------------------
     // Parsing

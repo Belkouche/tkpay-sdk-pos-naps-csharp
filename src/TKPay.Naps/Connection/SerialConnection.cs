@@ -76,7 +76,11 @@ internal sealed class SerialConnection : ITerminalConnection
             // --- Send raw TLV (no terminator), same framing as TCP ---
             var bytes = Encoding.UTF8.GetBytes(tlvMessage);
             _port.DiscardInBuffer();
+#if NET5_0_OR_GREATER
             await _port.BaseStream.WriteAsync(bytes, ct);
+#else
+            await _port.BaseStream.WriteAsync(bytes, 0, bytes.Length, ct);
+#endif
             await _port.BaseStream.FlushAsync(ct);
 
             // --- Receive ---
@@ -111,11 +115,15 @@ internal sealed class SerialConnection : ITerminalConnection
         var buf = new byte[bufSize];
 
         // First read — block until data arrives (outer timeout via outerCt).
+#if NET5_0_OR_GREATER
         var count = await stream.ReadAsync(buf, outerCt);
+#else
+        var count = await stream.ReadAsync(buf, 0, buf.Length, outerCt);
+#endif
         if (count == 0)
             throw NapsException.InvalidResponse("Connection closed before response.");
 
-        rawBytes.AddRange(buf[..count]);
+        rawBytes.AddRange(buf.Take(count));
         var done = IsTerminator(buf[count - 1]);
 
         // Drain remaining chunks with a 1-second inter-chunk silence fallback.
@@ -126,9 +134,13 @@ internal sealed class SerialConnection : ITerminalConnection
 
             try
             {
+#if NET5_0_OR_GREATER
                 count = await stream.ReadAsync(buf, drainCts.Token);
+#else
+                count = await stream.ReadAsync(buf, 0, buf.Length, drainCts.Token);
+#endif
                 if (count == 0) break;
-                rawBytes.AddRange(buf[..count]);
+                rawBytes.AddRange(buf.Take(count));
                 done = IsTerminator(buf[count - 1]);
             }
             catch (OperationCanceledException) when (!userCt.IsCancellationRequested)
@@ -150,7 +162,7 @@ internal sealed class SerialConnection : ITerminalConnection
     public ValueTask DisposeAsync()
     {
         DisposePort();
-        return ValueTask.CompletedTask;
+        return default;
     }
 
     private void DisposePort()
