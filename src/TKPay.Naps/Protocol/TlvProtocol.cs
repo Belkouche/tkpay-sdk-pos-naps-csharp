@@ -12,6 +12,56 @@ namespace TKPay.Naps.Protocol;
 internal static class TlvProtocol
 {
     private static readonly Regex _panPattern = new(@"\b\d{16}\b", RegexOptions.Compiled);
+
+    // -------------------------------------------------------------------------
+    // Response codes (§6)
+    // -------------------------------------------------------------------------
+
+    /// <summary>CR (013) codes that indicate an approval.</summary>
+    internal static readonly IReadOnlySet<string> ApprovedCodes =
+        new HashSet<string>(StringComparer.Ordinal) { "000", "001", "003", "007" };
+
+    /// <summary>
+    /// CR (013) response codes from the v2 spec §6. 000 always means success;
+    /// 001/003/007 are also approvals. All others describe a specific condition.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> ResponseCodes =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["000"] = "Approved",
+            ["001"] = "Approved with identification",
+            ["003"] = "Approved (VIP)",
+            ["007"] = "Approved, microchip update required",
+            ["100"] = "Do not honour",
+            ["101"] = "Card expired",
+            ["102"] = "Fraud suspected",
+            ["106"] = "Allowed PIN tries exceeded",
+            ["116"] = "Insufficient funds",
+            ["117"] = "Incorrect PIN",
+            ["118"] = "Card not registered",
+            ["120"] = "Transaction not permitted at terminal",
+            ["121"] = "Withdrawal limit exceeded",
+            ["183"] = "Invalid CVV",
+            ["280"] = "Alternative amount cancelled",
+            ["302"] = "Record not found on file",
+            ["307"] = "Format error",
+            ["480"] = "Reversal accepted",
+            ["482"] = "Transaction already cancelled",
+            ["909"] = "System failure",
+            ["911"] = "Issuer did not respond in time",
+            ["912"] = "Card issuer unavailable",
+            ["995"] = "Server processing error",
+        };
+
+    /// <summary>True when the CR code is an approval.</summary>
+    internal static bool IsApproved(string? cr) => cr != null && ApprovedCodes.Contains(cr);
+
+    /// <summary>Human-readable description of a CR code, or a fallback string if unknown.</summary>
+    internal static string DescribeResponse(string? cr) =>
+        cr != null && ResponseCodes.TryGetValue(cr, out var desc)
+            ? desc
+            : $"Unknown response code: {cr ?? "(none)"}";
+
     // -------------------------------------------------------------------------
     // Building
     // -------------------------------------------------------------------------
@@ -44,21 +94,51 @@ internal static class TlvProtocol
     }
 
     /// <summary>
-    /// Build Phase-2 confirmation request TLV.
+    /// Build Phase-2 confirmation request TLV (TM=002).
     /// Must be sent on the same TCP connection within 40 seconds of Phase-1 response.
+    ///
+    /// <para>
+    /// Per v2 §4.2 the confirmation echoes coherence fields from the approved
+    /// Payment Response (TM 101): the amount (MT + DE), the masked PAN (NCAR) and
+    /// the card expiry (DAEX) when available, so the terminal can cross-check the
+    /// frame it is confirming. All echo fields are optional — omit them and the old
+    /// three-argument behaviour is preserved.
+    /// </para>
+    ///
+    /// <para>
+    /// Field order: TM, NCAI, NS, [MT, DE], STAN, [NCAR], [DAEX], DA, HE.
+    /// </para>
     /// </summary>
-    internal static string BuildConfirmationRequest(string stan, string ncai, string sequence)
+    internal static string BuildConfirmationRequest(
+        string stan,
+        string ncai,
+        string sequence,
+        long? amountCentimes = null,
+        string? ncar = null,
+        string? daex = null,
+        string currency = TlvTags.CurrencyMad)
     {
         var (date, time) = CurrentDateTime();
 
-        return BuildField(TlvTags.Tm,   TlvTags.MsgConfirmationRequest)
-             + BuildField(TlvTags.Stan, stan)
-             + BuildField(TlvTags.Ncai, ncai)
-             + BuildField(TlvTags.Ns,   sequence)
-             + BuildField(TlvTags.Da,   date)
-             + BuildField(TlvTags.He,   time)
-             + BuildField(TlvTags.Datr, date)
-             + BuildField(TlvTags.Hetr, time);
+        var msg = BuildField(TlvTags.Tm,   TlvTags.MsgConfirmationRequest)
+                + BuildField(TlvTags.Ncai, ncai)
+                + BuildField(TlvTags.Ns,   sequence);
+
+        if (amountCentimes.HasValue)
+            msg += BuildField(TlvTags.Mt, amountCentimes.Value.ToString())
+                 + BuildField(TlvTags.DE, currency);
+
+        msg += BuildField(TlvTags.Stan, stan);
+
+        if (!string.IsNullOrEmpty(ncar))
+            msg += BuildField(TlvTags.Ncar, ncar);
+        if (!string.IsNullOrEmpty(daex))
+            msg += BuildField(TlvTags.Daex, daex);
+
+        msg += BuildField(TlvTags.Da, date)
+             + BuildField(TlvTags.He, time);
+
+        return msg;
     }
 
     /// <summary>
@@ -106,6 +186,13 @@ internal static class TlvProtocol
     internal static Dictionary<string, string> Parse(string tlv)
     {
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // Stop at the first end-of-message terminator ('!' v2, '?' v1) so any
+        // trailing receipt content or noise after it is ignored. Both are accepted
+        // so the parser is protocol-version agnostic.
+        var term = tlv.IndexOfAny(new[] { '!', '?' });
+        if (term >= 0) tlv = tlv[..term];
+
         var index = 0;
 
         while (index + 6 <= tlv.Length)

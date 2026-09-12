@@ -60,12 +60,36 @@ else
 
 ```csharp
 var config = new NapsConfig(
-    host:                 "192.168.1.100",         // Terminal IP
-    port:                 4444,                     // Default: 4444
-    timeout:              TimeSpan.FromMinutes(2),  // Phase-1 timeout
-    confirmationTimeout:  TimeSpan.FromSeconds(40)  // Phase-2 timeout
+    host:                 "192.168.1.100",          // Terminal IP
+    port:                 4444,                      // Default: 4444
+    timeout:              TimeSpan.FromMinutes(2),   // Phase-1 timeout
+    confirmationTimeout:  TimeSpan.FromSeconds(40),  // Phase-2 timeout
+    protocolVersion:      ProtocolVersion.V2         // Default: V2
 );
 ```
+
+---
+
+## Protocol version (v1 / v2)
+
+The SDK speaks the NAPS TLV **v2** protocol by default (`ProtocolVersion.V2`), used
+by TCP/Sunmi terminals. The version selects the end-of-message terminator expected on
+the wire — `'!'` for v2, `'?'` for v1 — though the parser and socket reader tolerate
+either terminator regardless of the configured version.
+
+Under v2, the Phase-2 **Payment Confirmation (TM 002)** echoes coherence fields from
+the approved Phase-1 response so the terminal can cross-check the frame it confirms:
+the amount (MT + DE currency `504`), the masked PAN (NCAR) and the card expiry (DAEX).
+These are threaded automatically by `ProcessPaymentAsync`.
+
+```csharp
+// Force legacy v1 (responses terminated with '?')
+var legacy = new NapsConfig(host: "192.168.1.100", protocolVersion: ProtocolVersion.V1);
+```
+
+Declined results carry a human-readable `PaymentResult.Error` sourced from the
+§6 response-code table (e.g. code `116` → `"Insufficient funds — code: 116"`);
+approvals are `{000, 001, 003, 007}`.
 
 ---
 

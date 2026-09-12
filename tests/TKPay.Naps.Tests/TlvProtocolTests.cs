@@ -154,4 +154,117 @@ public class TlvProtocolTests
         Assert.Equal("0100001",                      fields[TlvTags.Ncai]);
         Assert.Equal("000001",                       fields[TlvTags.Ns]);
     }
+
+    [Fact]
+    public void BuildConfirmationRequest_OmitsEchoFieldsWhenNotProvided()
+    {
+        var tlv    = TlvProtocol.BuildConfirmationRequest("000042", "0100001", "000001");
+        var fields = TlvProtocol.Parse(tlv);
+
+        Assert.False(fields.ContainsKey(TlvTags.Mt));   // no amount
+        Assert.False(fields.ContainsKey(TlvTags.DE));   // no currency
+        Assert.False(fields.ContainsKey(TlvTags.Ncar)); // no PAN
+        Assert.False(fields.ContainsKey(TlvTags.Daex)); // no expiry
+    }
+
+    [Fact]
+    public void BuildConfirmationRequest_CarriesAmountNcarDaexWhenProvided()
+    {
+        // v2 §4.2 — confirmation echoes MT/DE, NCAR and DAEX from the approved response.
+        var tlv = TlvProtocol.BuildConfirmationRequest(
+            stan: "000042",
+            ncai: "0100001",
+            sequence: "000001",
+            amountCentimes: 15000,
+            ncar: "516794******3315",
+            daex: "3010");
+        var fields = TlvProtocol.Parse(tlv);
+
+        Assert.Equal("15000",             fields[TlvTags.Mt]);
+        Assert.Equal(TlvTags.CurrencyMad, fields[TlvTags.DE]);
+        Assert.Equal("000042",            fields[TlvTags.Stan]);
+        Assert.Equal("516794******3315",  fields[TlvTags.Ncar]);
+        Assert.Equal("3010",              fields[TlvTags.Daex]);
+    }
+
+    [Fact]
+    public void BuildConfirmationRequest_UsesSpecFieldOrder()
+    {
+        // Expected order: TM, NCAI, NS, MT, DE, STAN, NCAR, DAEX, DA, HE
+        var tlv = TlvProtocol.BuildConfirmationRequest(
+            "000042", "0100001", "000001", 15000, "516794******3315", "3010");
+
+        var expected = new[]
+        {
+            TlvTags.Tm, TlvTags.Ncai, TlvTags.Ns, TlvTags.Mt, TlvTags.DE,
+            TlvTags.Stan, TlvTags.Ncar, TlvTags.Daex, TlvTags.Da, TlvTags.He
+        };
+
+        // Walk the frame the same way the parser does, collecting tags in wire order.
+        var actual = new List<string>();
+        var i = 0;
+        while (i + 6 <= tlv.Length)
+        {
+            var tag = tlv.Substring(i, 3);
+            var len = int.Parse(tlv.Substring(i + 3, 3));
+            actual.Add(tag);
+            i += 6 + len;
+        }
+
+        Assert.Equal(expected, actual);
+    }
+
+    // -------------------------------------------------------------------------
+    // Terminator handling ('!' v2, '?' v1)
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData('!')]
+    [InlineData('?')]
+    public void Parse_StopsAtTerminator(char terminator)
+    {
+        var tlv = TlvProtocol.BuildField("001", "101")
+                + TlvProtocol.BuildField("013", "000")
+                + terminator
+                + "GARBAGE-AFTER-TERMINATOR";
+
+        var fields = TlvProtocol.Parse(tlv);
+
+        Assert.Equal("101", fields["001"]);
+        Assert.Equal("000", fields["013"]);
+        Assert.Equal(2, fields.Count); // nothing parsed past the terminator
+    }
+
+    // -------------------------------------------------------------------------
+    // Response-code table (§6)
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("000", "Approved")]
+    [InlineData("116", "Insufficient funds")]
+    [InlineData("101", "Card expired")]
+    [InlineData("482", "Transaction already cancelled")]
+    [InlineData("995", "Server processing error")]
+    public void DescribeResponse_KnownCodes(string code, string expected)
+    {
+        Assert.Equal(expected, TlvProtocol.DescribeResponse(code));
+    }
+
+    [Fact]
+    public void DescribeResponse_UnknownCodeFallsBack()
+    {
+        Assert.Contains("999", TlvProtocol.DescribeResponse("999"));
+    }
+
+    [Theory]
+    [InlineData("000", true)]
+    [InlineData("001", true)]
+    [InlineData("003", true)]
+    [InlineData("007", true)]
+    [InlineData("116", false)]
+    [InlineData(null, false)]
+    public void IsApproved_ClassifiesCodes(string? code, bool expected)
+    {
+        Assert.Equal(expected, TlvProtocol.IsApproved(code));
+    }
 }

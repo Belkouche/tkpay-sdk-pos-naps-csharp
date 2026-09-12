@@ -121,12 +121,17 @@ internal sealed class NapsConnection : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Read from the stream until the '!' end-of-message terminator is received,
-    /// or until 1 second of silence after the first chunk (fallback for partial frames).
-    /// Response is UTF-8; length fields count chars.
+    /// Read from the stream until the end-of-message terminator is received
+    /// ('!' for protocol v2, '?' for v1 — both are always accepted regardless of
+    /// the configured version), or until 1 second of silence after the first chunk
+    /// (fallback for partial frames). Response is UTF-8; length fields count chars.
     /// </summary>
     private static async Task<string> ReadResponseAsync(NetworkStream stream, CancellationToken ct)
     {
+        // Accept either terminator on the wire so the reader tolerates a mismatch
+        // between the configured version and what the terminal actually sends.
+        static bool IsTerminator(byte b) => b == (byte)'!' || b == (byte)'?';
+
         const int bufSize = 4096;
         var rawBytes = new List<byte>(bufSize);
         var buf = new byte[bufSize];
@@ -137,7 +142,7 @@ internal sealed class NapsConnection : IAsyncDisposable
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf[..count]);
-        var done = buf[count - 1] == (byte)'!';
+        var done = IsTerminator(buf[count - 1]);
 
         // Drain remaining chunks with a 1-second inter-chunk gap
         while (!done)
@@ -150,7 +155,7 @@ internal sealed class NapsConnection : IAsyncDisposable
                 count = await stream.ReadAsync(buf, drainCts.Token);
                 if (count == 0) break;
                 rawBytes.AddRange(buf[..count]);
-                done = buf[count - 1] == (byte)'!';
+                done = IsTerminator(buf[count - 1]);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
@@ -164,9 +169,9 @@ internal sealed class NapsConnection : IAsyncDisposable
         // Decode as UTF-8 so char-based TLV length fields align with string indices
         var result = Encoding.UTF8.GetString(rawBytes.ToArray());
 
-        // Strip the trailing '!' terminator if present
-        var bangPos = result.LastIndexOf('!');
-        return bangPos >= 0 ? result[..bangPos] : result;
+        // Strip the trailing terminator ('!' v2, '?' v1) if present
+        var termPos = result.LastIndexOfAny(new[] { '!', '?' });
+        return termPos >= 0 ? result[..termPos] : result;
     }
 
     // -------------------------------------------------------------------------

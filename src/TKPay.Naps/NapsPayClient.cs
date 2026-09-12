@@ -208,7 +208,14 @@ public sealed class NapsPayClient
             ?? phase1.GetValueOrDefault(TlvTags.Ns)
             ?? throw NapsException.InvalidResponse("Missing sequence (NS/004) in Phase-1 response.");
 
-        var tlv = TlvProtocol.BuildConfirmationRequest(stan, request.GetNcai(), sequence);
+        // Echo coherence fields from the approved Payment Response (v2 §4.2):
+        // amount (MT), masked PAN (NCAR) and expiry (DAEX) when the terminal returned them.
+        var amountCentimes = (long)Math.Round(request.Amount * 100m);
+        var ncar = phase1.GetValueOrDefault(TlvTags.Ncar);
+        var daex = phase1.GetValueOrDefault(TlvTags.Daex);
+
+        var tlv = TlvProtocol.BuildConfirmationRequest(
+            stan, request.GetNcai(), sequence, amountCentimes, ncar, daex);
         var response = await conn.SendAndReceiveAsync(tlv, _config.ConfirmationTimeout, ct);
         return TlvProtocol.Parse(response);
     }

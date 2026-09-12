@@ -1,4 +1,5 @@
 using TKPay.Naps; // TlvTags
+using TKPay.Naps.Protocol;
 
 namespace TKPay.Naps.Models;
 
@@ -135,18 +136,28 @@ public sealed class PaymentResult
             customerReceipt: customerReceipt
         );
 
-    internal static PaymentResult Failed(string responseCode, IReadOnlyDictionary<string, string> fields) =>
-        new(
+    internal static PaymentResult Failed(string responseCode, IReadOnlyDictionary<string, string> fields)
+    {
+        Receipt? declineReceipt = null;
+        if (fields.TryGetValue(TlvTags.Dp, out var dp))
+            declineReceipt = ReceiptParser.Parse(dp, ReceiptType.Merchant);
+
+        return new(
             success: false,
             responseCode: responseCode,
             stan: fields.GetValueOrDefault(TlvTags.Stan),
+            maskedCardNumber: fields.GetValueOrDefault(TlvTags.Ncar),
+            merchantReceipt: declineReceipt,
             error: responseCode switch
             {
                 "909" => "Terminal or server is down",
                 "302" => "Transaction not found",
                 "482" => "Transaction already cancelled",
                 "480" => "Transaction cancelled",
-                _     => $"Payment declined — code: {responseCode}"
+                _     => TlvProtocol.ResponseCodes.TryGetValue(responseCode, out var desc)
+                    ? $"{desc} — code: {responseCode}"
+                    : $"Payment declined — code: {responseCode}"
             }
         );
+    }
 }
