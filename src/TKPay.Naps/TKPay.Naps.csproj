@@ -7,13 +7,17 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>TKPay.Naps</RootNamespace>
     <AssemblyName>TKPay.Naps</AssemblyName>
-    <Version>1.2.1</Version>
+    <Version>1.3.0</Version>
     <Authors>TKpay</Authors>
     <Description>C# SDK for NAPS Pay M2M TLV/TCP terminal integration</Description>
     <PackageTags>naps;pos;payment;terminal;tkpay</PackageTags>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="9.0.0" />
+  </ItemGroup>
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">

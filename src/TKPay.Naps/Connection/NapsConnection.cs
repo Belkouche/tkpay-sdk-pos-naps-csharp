@@ -18,7 +18,7 @@ namespace TKPay.Naps.Connection;
 /// var response2 = await conn.SendAndReceiveAsync(tlv2, config.ConfirmationTimeout, ct);
 /// </code>
 /// </summary>
-internal sealed class NapsConnection : IAsyncDisposable
+internal sealed class NapsConnection : ITerminalConnection
 {
     private readonly NapsConfig _config;
     private TcpClient?    _tcp;
@@ -30,7 +30,7 @@ internal sealed class NapsConnection : IAsyncDisposable
     }
 
     /// <summary>True while the socket is open and connected.</summary>
-    internal bool IsConnected =>
+    public bool IsConnected =>
         _tcp is { Connected: true } && _stream is not null;
 
     // -------------------------------------------------------------------------
@@ -38,9 +38,13 @@ internal sealed class NapsConnection : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>Open a TCP connection to the terminal.</summary>
-    internal async Task ConnectAsync(CancellationToken ct = default)
+    public async Task ConnectAsync(CancellationToken ct = default)
     {
         await DisposeSocketAsync();
+
+        if (_config.Host is null)
+            throw NapsException.ConnectionFailed(
+                new InvalidOperationException("Host must be set for the TCP transport."));
 
         _tcp = new TcpClient
         {
@@ -69,7 +73,7 @@ internal sealed class NapsConnection : IAsyncDisposable
     }
 
     /// <summary>Close the socket and release resources.</summary>
-    internal async Task DisconnectAsync()
+    public async Task DisconnectAsync()
     {
         await DisposeSocketAsync();
     }
@@ -85,7 +89,7 @@ internal sealed class NapsConnection : IAsyncDisposable
     /// <param name="timeout">Read timeout for this exchange.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>TLV response string from terminal.</returns>
-    internal async Task<string> SendAndReceiveAsync(
+    public async Task<string> SendAndReceiveAsync(
         string tlvMessage,
         TimeSpan timeout,
         CancellationToken ct = default)

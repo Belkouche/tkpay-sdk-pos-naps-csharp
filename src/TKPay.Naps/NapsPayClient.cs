@@ -63,7 +63,7 @@ public sealed class NapsPayClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        await using var conn = new NapsConnection(_config);
+        await using var conn = ITerminalConnection.Create(_config);
         await conn.ConnectAsync(ct);
 
         // --- Phase 1: Payment Request ---
@@ -104,7 +104,7 @@ public sealed class NapsPayClient
         var ncai = registerId + cashierId;
         var tlv = TlvProtocol.BuildSettlementRequest(ncai);
 
-        await using var conn = new NapsConnection(_config);
+        await using var conn = ITerminalConnection.Create(_config);
         await conn.ConnectAsync(ct);
 
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
@@ -142,7 +142,7 @@ public sealed class NapsPayClient
         var ncai = registerId + cashierId;
         var tlv = TlvProtocol.BuildCancellationRequest(stan, ncai, sequence, amountCentimes);
 
-        await using var conn = new NapsConnection(_config);
+        await using var conn = ITerminalConnection.Create(_config);
         await conn.ConnectAsync(ct);
 
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
@@ -166,7 +166,7 @@ public sealed class NapsPayClient
     {
         try
         {
-            await using var conn = new NapsConnection(_config);
+            await using var conn = ITerminalConnection.Create(_config);
             await conn.ConnectAsync(ct);
             return conn.IsConnected;
         }
@@ -181,7 +181,7 @@ public sealed class NapsPayClient
     // -------------------------------------------------------------------------
 
     private async Task<IReadOnlyDictionary<string, string>> SendPaymentRequestAsync(
-        NapsConnection conn,
+        ITerminalConnection conn,
         PaymentRequest request,
         CancellationToken ct)
     {
@@ -196,7 +196,7 @@ public sealed class NapsPayClient
     // -------------------------------------------------------------------------
 
     private async Task<IReadOnlyDictionary<string, string>> SendConfirmationAsync(
-        NapsConnection conn,
+        ITerminalConnection conn,
         PaymentRequest request,
         IReadOnlyDictionary<string, string> phase1,
         CancellationToken ct)

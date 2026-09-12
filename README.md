@@ -1,8 +1,10 @@
 # TKPay NAPS POS SDK — C#
 
-C# SDK for integrating NAPS Pay terminals via the M2M TLV/TCP protocol (port 4444).
+C# SDK for integrating NAPS Pay terminals via the M2M TLV protocol, over TCP
+(Sunmi P2/P3, port 4444) or USB serial (Ingenico Lane/3000, CDC-ACM).
 
 - .NET 6+ / .NET Standard compatible
+- Two transports: TCP socket (default) and USB serial with port auto-discovery
 - Fully `async/await` — no blocking calls
 - PCI DSS compliant — PAN masked immediately on parse (first 6 + last 4 only)
 - Two-phase payment flow handled automatically
@@ -64,18 +66,62 @@ var config = new NapsConfig(
     port:                 4444,                      // Default: 4444
     timeout:              TimeSpan.FromMinutes(2),   // Phase-1 timeout
     confirmationTimeout:  TimeSpan.FromSeconds(40),  // Phase-2 timeout
-    protocolVersion:      ProtocolVersion.V2         // Default: V2
+    protocolVersion:      ProtocolVersion.V2         // Default per transport (TCP → V2)
 );
+```
+
+---
+
+## Transports (TCP / USB serial)
+
+The SDK reaches the terminal over one of two transports, selected by which config
+you build:
+
+- **TCP socket** (default) — Sunmi P2/P3 terminals. Use the `NapsConfig(host, …)`
+  constructor. Defaults to protocol **v2** (`'!'` terminator).
+- **USB serial** — Ingenico Lane/3000 over USB CDC-ACM. Use `NapsConfig.Serial(…)`.
+  Defaults to protocol **v1** (`'?'` terminator).
+
+```csharp
+// Sunmi over TCP (unchanged)
+var tcp = new NapsConfig(host: "192.168.1.100");
+
+// Ingenico Lane/3000 over USB serial — auto-discover the port
+var serial = NapsConfig.Serial();                       // portName: null → auto-discover
+var pinned = NapsConfig.Serial("/dev/cu.usbmodem1401"); // or pin an explicit port
+var custom = NapsConfig.Serial(baudRate: 115200);       // 115200 is the default
+
+// Same client API for both transports
+var client = new NapsPayClient(serial);
+var result = await client.ProcessPaymentAsync(
+    new PaymentRequest(amount: 150.00m, registerId: "01", cashierId: "00001"));
+```
+
+The USB serial link uses the **same ASCII TLV framing** as TCP: the raw TLV request
+is written with no terminator, and the response is read until the resolved terminator
+(`'!'`/`'?'`) or a ~1-second inter-chunk silence.
+
+### Port auto-discovery
+
+When `NapsConfig.Serial()` is given a `null` port name, the SDK auto-discovers the
+Ingenico port by USB vendor id **0x0B00** (2816), falling back to a CDC-ACM device
+(`usbmodem` / `ttyACM`) if no VID match is found. Discovery is cross-platform
+(Windows registry, macOS `ioreg`, Linux sysfs). Helpers:
+
+```csharp
+string[] all   = PortDiscovery.ListPorts();          // all serial ports
+string?  ingen = PortDiscovery.FindIngenicoPort();    // best Ingenico match, or null
 ```
 
 ---
 
 ## Protocol version (v1 / v2)
 
-The SDK speaks the NAPS TLV **v2** protocol by default (`ProtocolVersion.V2`), used
-by TCP/Sunmi terminals. The version selects the end-of-message terminator expected on
-the wire — `'!'` for v2, `'?'` for v1 — though the parser and socket reader tolerate
-either terminator regardless of the configured version.
+The protocol version defaults **per transport** when not set explicitly: TCP/Sunmi →
+**v2** (`'!'`), USB serial/Ingenico → **v1** (`'?'`). An explicit `protocolVersion`
+argument always wins. The version selects the end-of-message terminator expected on
+the wire, though the parser and reader tolerate either terminator regardless of the
+configured version.
 
 Under v2, the Phase-2 **Payment Confirmation (TM 002)** echoes coherence fields from
 the approved Phase-1 response so the terminal can cross-check the frame it confirms:
