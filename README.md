@@ -1,5 +1,16 @@
 # TKPay NAPS POS SDK — C#
 
+> **Canonical NAPS SDK.** This is the reference implementation of the NAPS Pay M2M TLV
+> integration; the other language SDKs track it. Part of a family that all speak the same
+> protocol to the same terminals:
+> **C# (this repo, canonical)** ·
+> [Node.js](https://github.com/Belkouche/aslan-naps-node) ·
+> [Android](https://github.com/Belkouche/tkpay-sdk-pos-android) ·
+> [iOS](https://github.com/Belkouche/tkpay-sdk-pos-ios) ·
+> [React Native](https://github.com/Belkouche/tkpay-sdk-pos-rn).
+> Test without hardware using the [emulator](https://github.com/Belkouche/tkpay-naps-emulator).
+> (Supersedes the retired `aslan-naps-sdk`.)
+
 C# SDK for integrating NAPS Pay terminals via the M2M TLV protocol, over TCP
 (Sunmi P2/P3, port 4444) or USB serial (Ingenico Lane/3000, CDC-ACM). Targets
 `net10.0`, `net9.0` and `net48` (.NET Framework 4.8).
