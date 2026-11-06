@@ -89,8 +89,14 @@ else
 }
 ```
 
+The emulator lives in its own repository. Clone it next to this one so the commands below work as written:
+
 ```bash
-python3 /Users/belkouche/Projects/tkpay/tkpay-naps-emulator/naps_emulator.py --port 4444   # terminal 1
+git clone https://github.com/Belkouche/tkpay-naps-emulator.git ../tkpay-naps-emulator
+```
+
+```bash
+python3 ../tkpay-naps-emulator/naps_emulator.py --port 4444   # terminal 1
 dotnet run --project examples/Quickstart                                                   # terminal 2
 ```
 
@@ -410,7 +416,7 @@ Timeouts and framing, as implemented:
 same protocol, so you can develop without hardware:
 
 ```bash
-python3 /Users/belkouche/Projects/tkpay/tkpay-naps-emulator/naps_emulator.py --port 4444
+python3 ../tkpay-naps-emulator/naps_emulator.py --port 4444
 ```
 
 Useful options (`--help` lists them all):
@@ -432,9 +438,6 @@ Useful options (`--help` lists them all):
 | `--protocol v1` | Terminate replies with `?` instead of `!` |
 | `--debug` | Print every TLV field received |
 
-The `confirm_error` and `void_*` modes are on the emulator's `sync/napspay-5.4.4`
-branch (commit `5cc8536`) until it is merged.
-
 ### This repo's tests
 
 ```bash
@@ -445,7 +448,7 @@ dotnet test       # unit tests; the emulator integration tests are skipped
 The void integration tests run against a live emulator, one mode at a time:
 
 ```bash
-python3 /Users/belkouche/Projects/tkpay/tkpay-naps-emulator/naps_emulator.py --port 4451 --mode void_995
+python3 ../tkpay-naps-emulator/naps_emulator.py --port 4451 --mode void_995
 NAPS_EMULATOR_MODE=void_995 NAPS_EMULATOR_PORT=4451 dotnet test --filter Category=Integration
 ```
 
