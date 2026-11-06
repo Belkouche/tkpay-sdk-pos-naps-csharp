@@ -36,6 +36,9 @@ terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
 - `CancellationResult.MerchantReceipt` (DP of TM 103) and
   `CancellationResult.CustomerReceipt` (DP of TM 104). On completion `Stan` is the
   void STAN from TM 104.
+- **`examples/Quickstart`** — runnable minimal payment example (same code as the
+  README quickstart), part of the solution build. README rewritten as an
+  integrator guide.
 - Full NapsPay ISO response-code table in `TlvProtocol.ResponseCodes` /
   `NapsTlv.DescribeResponse` (104, 107–129, 180–184, 200–210, 265, 281, 299–309,
   381–385, 400, 481, 500, 503, 581, 582, 800, 880, 888, 902, 908, 992–994).
