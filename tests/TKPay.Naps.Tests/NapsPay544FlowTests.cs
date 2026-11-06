@@ -308,4 +308,25 @@ public class NapsPay544FlowTests
         Assert.True(result.IsApproved());
         Assert.Equal("123456", result.Stan);
     }
+
+    // -------------------------------------------------------------------------
+    // Duplicate receipt by STAN (TM 008)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task DuplicateReceiptByStanAsync_SendsStan_AndReturnsReceipt()
+    {
+        var (port, requests) = StartTerminal(_ =>
+            F("001", "108") + F("013", "000") + F("008", "124589") + F("010", Receipt));
+
+        var result = await Client(port).DuplicateReceiptByStanAsync("124589");
+        var frames = await requests;
+
+        Assert.True(result.IsApproved());
+        Assert.Equal("124589", result.Stan);
+        Assert.NotNull(result.MerchantReceipt);
+        var req = TlvProtocol.Parse(frames[0]);
+        Assert.Equal("008", req[TlvTags.Tm]);
+        Assert.Equal("124589", req[TlvTags.Stan]);
+    }
 }

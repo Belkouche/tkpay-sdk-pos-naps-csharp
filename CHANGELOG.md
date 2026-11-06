@@ -30,6 +30,9 @@ terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
   value as the TM 003 it confirms, not NSA (005). MT is echoed verbatim from TM 103
   (falling back to the request amount); the live terminal refuses TM 004 without it
   (CR 909).
+- **`DuplicateReceiptByStanAsync(stan, …)`** — TM 008 carrying the STAN (spec §4.6)
+  to reprint a given transaction of the current business day, e.g. to check a
+  pending void. `DuplicateReceiptAsync` (last transaction) is unchanged.
 - `CancellationResult.MerchantReceipt` (DP of TM 103) and
   `CancellationResult.CustomerReceipt` (DP of TM 104). On completion `Stan` is the
   void STAN from TM 104.

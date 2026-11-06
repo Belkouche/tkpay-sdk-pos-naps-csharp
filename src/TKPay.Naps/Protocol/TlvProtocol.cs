@@ -309,9 +309,15 @@ internal static class TlvProtocol
     internal static string BuildTotalsRequest(string ncai = "0100001", string sequence = "000001") =>
         BuildManagementRequest(TlvTags.MsgTotals, ncai, sequence);
 
-    /// <summary>Build a duplicate-receipt (reprint) request (TM=008).</summary>
-    internal static string BuildDuplicateReceiptRequest(string ncai = "0100001", string sequence = "000001") =>
-        BuildManagementRequest(TlvTags.MsgDuplicateReceipt, ncai, sequence);
+    /// <summary>
+    /// Build a duplicate-receipt (reprint) request (TM=008). With <paramref name="stan"/>
+    /// the terminal reprints that transaction of the current business day (spec §4.6);
+    /// without it, the last recorded transaction.
+    /// </summary>
+    internal static string BuildDuplicateReceiptRequest(
+        string ncai = "0100001", string sequence = "000001", string? stan = null) =>
+        BuildManagementRequest(TlvTags.MsgDuplicateReceipt, ncai, sequence,
+            stan is null ? null : new[] { (TlvTags.Stan, stan) });
 
     /// <summary>Build a reset-PIN-pad request (TM=012).</summary>
     internal static string BuildResetPinpadRequest(string ncai = "0100001", string sequence = "000001") =>

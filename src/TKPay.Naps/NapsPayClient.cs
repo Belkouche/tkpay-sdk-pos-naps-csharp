@@ -318,13 +318,32 @@ public sealed class NapsPayClient
     /// <param name="registerId">Register ID (2 digits, default "01").</param>
     /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
     /// <param name="ct">Optional cancellation token.</param>
-    public async Task<PaymentResult> DuplicateReceiptAsync(
+    public Task<PaymentResult> DuplicateReceiptAsync(
         string registerId = "01",
         string cashierId = "00001",
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        SendDuplicateReceiptAsync(registerId, cashierId, null, ct);
+
+    /// <summary>
+    /// Duplicate receipt by STAN (TM=008 with STAN). Reprints the receipt of a given
+    /// transaction of the current business day — e.g. to check a pending void.
+    /// </summary>
+    /// <param name="stan">STAN of the transaction to reprint.</param>
+    /// <param name="registerId">Register ID (2 digits, default "01").</param>
+    /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
+    /// <param name="ct">Optional cancellation token.</param>
+    public Task<PaymentResult> DuplicateReceiptByStanAsync(
+        string stan,
+        string registerId = "01",
+        string cashierId = "00001",
+        CancellationToken ct = default) =>
+        SendDuplicateReceiptAsync(registerId, cashierId, stan ?? throw new ArgumentNullException(nameof(stan)), ct);
+
+    private async Task<PaymentResult> SendDuplicateReceiptAsync(
+        string registerId, string cashierId, string? stan, CancellationToken ct)
     {
         var fields = await SendManagementAsync(
-            TlvProtocol.BuildDuplicateReceiptRequest(registerId + cashierId, GenerateSequence()), ct);
+            TlvProtocol.BuildDuplicateReceiptRequest(registerId + cashierId, GenerateSequence(), stan), ct);
         var rc = fields.GetValueOrDefault(TlvTags.CR, "");
 
         if (rc == TlvTags.RcApproved)

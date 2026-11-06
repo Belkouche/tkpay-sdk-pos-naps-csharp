@@ -39,6 +39,23 @@ public class ManagementRequestTests
     }
 
     [Fact]
+    public void DuplicateReceiptRequest_WithoutStan_OmitsStan()
+    {
+        var fields = TlvProtocol.Parse(TlvProtocol.BuildDuplicateReceiptRequest("0100001", "000001"));
+
+        Assert.False(fields.ContainsKey(TlvTags.Stan));
+    }
+
+    [Fact]
+    public void DuplicateReceiptRequest_WithStan_SendsStan()
+    {
+        var fields = TlvProtocol.Parse(TlvProtocol.BuildDuplicateReceiptRequest("0100001", "000001", "124589"));
+
+        Assert.Equal("008",    fields[TlvTags.Tm]);
+        Assert.Equal("124589", fields[TlvTags.Stan]);   // spec §4.6: STAN selects the transaction
+    }
+
+    [Fact]
     public void ResetPinpadRequest_UsesTm012()
     {
         var fields = TlvProtocol.Parse(TlvProtocol.BuildResetPinpadRequest("0100001", "000001"));
