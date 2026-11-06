@@ -68,6 +68,8 @@ internal static class TlvTags
 
     // ---- Response codes ----
     internal const string RcApproved = "000";
+    internal const string RcReversalAccepted = "480";      // TM 104: cancellation completed
+    internal const string RcServerProcessingError = "995"; // TM 104: outcome unconfirmed
 
     /// <summary>Human-readable name for debugging.</summary>
     internal static string Name(string tag) => tag switch

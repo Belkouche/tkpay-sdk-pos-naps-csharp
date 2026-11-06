@@ -124,20 +124,27 @@ public sealed class NapsPayClient
     }
 
     /// <summary>
-    /// Cancel (void) a previous transaction — two-phase, on the same connection:
-    /// TM=003 → TM 103 (void performed, merchant receipt), then TM=004 → TM 104
-    /// (void STAN, customer receipt).
+    /// Cancel (void) a previous transaction — two-phase, on the same connection
+    /// (spec §4.3/§4.4): TM=003 → TM 103 (transaction found, merchant receipt), then
+    /// TM=004 → TM 104 (reversal executed, void STAN, customer receipt).
     ///
     /// <para>
-    /// NapsPay v5.4.4+ requires the original amount (TAG 002) in the frame. A
-    /// terminal that answers TM 003 directly with TM 104 is accepted without the
-    /// confirmation step.
+    /// Check <see cref="CancellationResult.Status"/>: <c>Completed</c> only on TM 104
+    /// CR 000/480. <c>Pending</c> (no TM 104 reply, or CR 995) means the outcome is
+    /// unknown — verify with <see cref="DuplicateReceiptAsync"/> (TM 008) by STAN;
+    /// never treat it as a completed void.
+    /// </para>
+    ///
+    /// <para>
+    /// NapsPay v5.4.4+ requires the original amount (TAG 002) in the TM 003 frame; TM 004
+    /// echoes the amount returned in TM 103. A terminal that answers TM 003 directly with
+    /// TM 104 is classified without the confirmation step.
     /// </para>
     /// </summary>
     /// <param name="stan">STAN of the transaction to cancel.</param>
     /// <param name="registerId">Register ID (2 digits).</param>
     /// <param name="cashierId">Cashier ID (5 digits).</param>
-    /// <param name="sequence">Original sequence number.</param>
+    /// <param name="sequence">Sequence number (NSA in TM 003, NS in TM 004).</param>
     /// <param name="amountCentimes">Original amount in centimes (required for v5.4.4+).</param>
     /// <param name="ct">Optional cancellation token.</param>
     public async Task<CancellationResult> CancelAsync(
@@ -159,45 +166,62 @@ public sealed class NapsPayClient
 
         var rc = fields.GetValueOrDefault(TlvTags.CR, "");
         var mt = fields.GetValueOrDefault(TlvTags.Tm, "");
-        var isSuccess = rc == TlvTags.RcApproved &&
-                        (mt == TlvTags.MsgCancellationResponse || mt == TlvTags.MsgCancellationConfirmationResponse);
 
-        if (!isSuccess)
+        if (mt == TlvTags.MsgCancellationConfirmationResponse)
+            return ClassifyCancellationConfirmation(fields, stan, null);
+
+        // TM 103 CR=000 only means "transaction found" — nothing is reversed yet.
+        if (mt != TlvTags.MsgCancellationResponse || rc != TlvTags.RcApproved)
             return CancellationResult.Failure(rc);
 
-        // --- Phase 2: Cancellation Confirmation (TM 004 → 104) ---
-        Dictionary<string, string>? confirmation = null;
-        if (mt == TlvTags.MsgCancellationResponse)
-        {
-            var confirmTlv = TlvProtocol.BuildCancellationConfirmationRequest(stan, ncai, sequence, amountCentimes);
-            try
-            {
-                var confirmResponse = await conn.SendAndReceiveAsync(confirmTlv, _config.ConfirmationTimeout, ct);
-                confirmation = TlvProtocol.Parse(confirmResponse);
-            }
-            catch (NapsException ex) when (ex.Code == NapsErrorCode.Timeout)
-            {
-                // The void is already committed once TM 103 returns RC=000; TM 104
-                // only carries the customer copy, so a missing reply is not a failure.
-            }
-
-            var confirmRc = confirmation?.GetValueOrDefault(TlvTags.CR);
-            if (confirmRc != null && confirmRc != TlvTags.RcApproved)
-                return CancellationResult.Failure(confirmRc);
-        }
-
         Receipt? merchantReceipt = null;
-        Receipt? customerReceipt = null;
         if (fields.TryGetValue(TlvTags.Dp, out var merchantDp))
             merchantReceipt = ReceiptParser.Parse(merchantDp, ReceiptType.Merchant);
-        if (confirmation != null && confirmation.TryGetValue(TlvTags.Dp, out var customerDp))
-            customerReceipt = ReceiptParser.Parse(customerDp, ReceiptType.Customer);
+        var originalStan = fields.GetValueOrDefault(TlvTags.Stan) ?? stan;
 
-        return CancellationResult.Success(
-            rc,
-            confirmation?.GetValueOrDefault(TlvTags.Stan) ?? fields.GetValueOrDefault(TlvTags.Stan),
-            merchantReceipt,
-            customerReceipt);
+        // --- Phase 2: Cancellation Confirmation (TM 004 → 104) executes the reversal ---
+        var confirmTlv = TlvProtocol.BuildCancellationConfirmationRequest(
+            originalStan, ncai, sequence,
+            fields.GetValueOrDefault(TlvTags.Mt) ?? amountCentimes?.ToString());
+        Dictionary<string, string> confirmation;
+        try
+        {
+            var confirmResponse = await conn.SendAndReceiveAsync(confirmTlv, _config.ConfirmationTimeout, ct);
+            confirmation = TlvProtocol.Parse(confirmResponse);
+        }
+        catch (NapsException ex) when (ex.Code == NapsErrorCode.Timeout)
+        {
+            // TM 004 was sent but no TM 104 came back: the reversal may or may not
+            // have executed. Fail closed — pending, never a completed void.
+            return CancellationResult.Pending("", originalStan, merchantReceipt);
+        }
+
+        return ClassifyCancellationConfirmation(confirmation, originalStan, merchantReceipt);
+    }
+
+    /// <summary>
+    /// Classify a TM 104 reply: CR 000/480 completed, CR 995 pending (seen with
+    /// successful voids on live v5.4.4 terminals), anything else failed.
+    /// </summary>
+    private static CancellationResult ClassifyCancellationConfirmation(
+        IReadOnlyDictionary<string, string> confirmation, string originalStan, Receipt? merchantReceipt)
+    {
+        var rc = confirmation.GetValueOrDefault(TlvTags.CR, "");
+        switch (rc)
+        {
+            case TlvTags.RcApproved:
+            case TlvTags.RcReversalAccepted:
+                Receipt? customerReceipt = null;
+                if (confirmation.TryGetValue(TlvTags.Dp, out var customerDp))
+                    customerReceipt = ReceiptParser.Parse(customerDp, ReceiptType.Customer);
+                return CancellationResult.Success(
+                    rc, confirmation.GetValueOrDefault(TlvTags.Stan) ?? originalStan,
+                    merchantReceipt, customerReceipt);
+            case TlvTags.RcServerProcessingError:
+                return CancellationResult.Pending(rc, originalStan, merchantReceipt);
+            default:
+                return CancellationResult.Failure(rc);
+        }
     }
 
     /// <summary>

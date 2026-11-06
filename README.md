@@ -177,20 +177,27 @@ Your App                    SDK                      Terminal
 
 ## Cancellation (void) Flow
 
-A void is also two-phase on one connection (NapsPay v5.4.4):
+A void is two-phase on one connection (spec v2.0 §4.3/§4.4, NapsPay v5.4.4):
 
 ```csharp
 var v = await client.CancelAsync(stan: p.Stan!, registerId: "01", cashierId: "00001",
                                  sequence: "000001", amountCentimes: 15000);
-// TM 003 → TM 103 (void performed, merchant receipt)
-// TM 004 → TM 104 (void STAN, customer receipt)
-Console.WriteLine($"{v.IsSuccess} {v.Stan}");
-Console.WriteLine(v.CustomerReceipt?.ToPlainText());
+// TM 003 → TM 103 (transaction found, merchant receipt)   — nothing reversed yet
+// TM 004 → TM 104 (reversal executed, void STAN, customer receipt)
+switch (v.Status)
+{
+    case CancellationStatus.Completed: /* TM 104 CR 000 or 480 */ break;
+    case CancellationStatus.Failed:    /* refused — nothing reversed */ break;
+    case CancellationStatus.Pending:   /* unknown: no TM 104 reply, or CR 995 */
+        // Verify before retrying: reprint (TM 008) and check the receipt for v.Stan.
+        break;
+}
 ```
 
-The void is committed once TM 103 returns CR=000; if the terminal does not answer the
-TM 004 confirmation within `ConfirmationTimeout`, the result is still a success (without
-the customer receipt). A terminal that answers TM 003 directly with TM 104 is accepted.
+`Pending` is fail-closed: the reversal may or may not have executed, so it is never
+reported as `IsSuccess`. It keeps `Stan` (the transaction being cancelled) and the
+TM 103 `MerchantReceipt`. TM 004 carries the sequence in NS (same value as TM 003) and
+echoes the amount (MT) returned in TM 103 — the v5.4.4 terminal refuses TM 004 without it.
 
 ---
 

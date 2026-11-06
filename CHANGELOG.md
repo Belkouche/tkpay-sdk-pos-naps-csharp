@@ -5,18 +5,34 @@ All notable changes to this project are documented here.
 ## [1.5.0]
 
 NapsPay v5.4.4 sync — gaps found by cross-checking the NAPS Pay ECR message
-definitions, `aslan-naps-sdk` and the emulator.
+definitions, `aslan-naps-sdk` and the emulator, then corrected against the official
+NapsPay ECR TLV Protocol Specification v2.0 (§4.3, §4.4, §6) and the live v5.4.4
+terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
 
 ### Added
-- **Two-phase void.** `CancelAsync` now completes the NapsPay cancellation flow on
-  the same connection: TM 003 → TM 103, then **TM 004 (Cancellation Confirmation)**
-  → TM 104. Previously only TM 003 was sent, leaving the terminal waiting for the
-  confirmation. A missing TM 104 reply (timeout) is tolerated — the void is committed
-  at TM 103. A terminal that answers TM 003 directly with TM 104 is still accepted.
+- **Two-phase void.** `CancelAsync` now completes the cancellation flow on the same
+  connection: TM 003 → TM 103 (CR 000 = *transaction found*, nothing reversed yet),
+  then **TM 004 (Cancellation Confirmation)** → TM 104, which executes the reversal.
+  Previously only TM 003 was sent.
+- **`CancellationStatus` (`Completed` / `Failed` / `Pending`)** and
+  `CancellationResult.Status` / `IsPending`. TM 104 classification:
+  - CR **000 or 480** → `Completed` (spec: "CR = 480 (or 000): cancellation completed").
+  - CR **995** → `Pending` — the spec calls it "Server processing error", but it was
+    seen with successful voids on the live terminal.
+  - **No TM 104 reply** (timeout after TM 004) → `Pending` — fail closed, never a
+    successful void.
+  - Anything else → `Failed`.
+
+  A pending result keeps `Stan` (the transaction being cancelled) and the TM 103
+  `MerchantReceipt` so the app can verify via duplicate receipt (TM 008).
+- **TM 004 frame** (`TlvProtocol.BuildCancellationConfirmationRequest`):
+  `TM, MT, STAN, NCAI, NS, DA, HE`. The sequence goes in **NS (004)**, the same
+  value as the TM 003 it confirms, not NSA (005). MT is echoed verbatim from TM 103
+  (falling back to the request amount); the live terminal refuses TM 004 without it
+  (CR 909).
 - `CancellationResult.MerchantReceipt` (DP of TM 103) and
-  `CancellationResult.CustomerReceipt` (DP of TM 104). `Stan` now prefers the void
-  STAN from TM 104.
-- `TlvProtocol.BuildCancellationConfirmationRequest` (TM 004).
+  `CancellationResult.CustomerReceipt` (DP of TM 104). On completion `Stan` is the
+  void STAN from TM 104.
 - Full NapsPay ISO response-code table in `TlvProtocol.ResponseCodes` /
   `NapsTlv.DescribeResponse` (104, 107–129, 180–184, 200–210, 265, 281, 299–309,
   381–385, 400, 481, 500, 503, 581, 582, 800, 880, 888, 902, 908, 992–994).
@@ -27,6 +43,10 @@ definitions, `aslan-naps-sdk` and the emulator.
   yields a failed `PaymentResult` instead of an approval.
 
 ### Changed
+- `CancellationResult.IsSuccess` is now computed from `Status` (no longer
+  `init`-settable) and is true only for `Completed`.
+- A terminal that answers TM 003 directly with TM 104 is classified with the same
+  TM 104 rules (previously only CR 000 was accepted).
 - `TlvTags.MsgCancellationCorrection` (internal) renamed to
   `MsgCancellationConfirmationResponse` ("104") and
   `MsgCancellationConfirmationRequest` ("004") added — 104 is the reply to TM 004,

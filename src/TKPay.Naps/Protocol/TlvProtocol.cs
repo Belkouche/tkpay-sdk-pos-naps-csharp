@@ -209,29 +209,41 @@ internal static class TlvProtocol
     /// Pass <paramref name="amountCentimes"/> when targeting v5.4.4+.
     /// </summary>
     internal static string BuildCancellationRequest(
-        string stan, string ncai, string sequence, long? amountCentimes = null) =>
-        BuildCancellationFrame(TlvTags.MsgCancellationRequest, stan, ncai, sequence, amountCentimes);
-
-    /// <summary>
-    /// Build cancellation confirmation request TLV (TM=004) — Phase 2 of a void.
-    /// Sent on the same connection after an approved Cancellation Response (TM 103);
-    /// the terminal answers TM 104 with the void STAN and the customer receipt.
-    /// Carries the same fields as the TM 003 request.
-    /// </summary>
-    internal static string BuildCancellationConfirmationRequest(
-        string stan, string ncai, string sequence, long? amountCentimes = null) =>
-        BuildCancellationFrame(TlvTags.MsgCancellationConfirmationRequest, stan, ncai, sequence, amountCentimes);
-
-    private static string BuildCancellationFrame(
-        string tm, string stan, string ncai, string sequence, long? amountCentimes)
+        string stan, string ncai, string sequence, long? amountCentimes = null)
     {
         var (date, time) = CurrentDateTime();
-        var msg = BuildField(TlvTags.Tm, tm);
+        var msg = BuildField(TlvTags.Tm, TlvTags.MsgCancellationRequest);
         if (amountCentimes.HasValue)
             msg += BuildField(TlvTags.Mt, amountCentimes.Value.ToString());
         msg += BuildField(TlvTags.Stan, stan)
              + BuildField(TlvTags.Ncai, ncai)
              + BuildField(TlvTags.Nsa,  sequence)
+             + BuildField(TlvTags.Da,   date)
+             + BuildField(TlvTags.He,   time);
+        return msg;
+    }
+
+    /// <summary>
+    /// Build cancellation confirmation request TLV (TM=004) — Phase 2 of a void (spec §4.4).
+    /// Sent on the same connection after TM 103 CR=000; it executes the actual reversal.
+    ///
+    /// <para>
+    /// The sequence goes in NS (004) — same value as the TM 003 it confirms — not NSA.
+    /// <paramref name="amount"/> is the MT (002) echoed from TM 103; the v5.4.4 terminal
+    /// refuses TM 004 without it (CR 909).
+    /// Field order (live-verified): TM, [MT], STAN, NCAI, NS, DA, HE.
+    /// </para>
+    /// </summary>
+    internal static string BuildCancellationConfirmationRequest(
+        string stan, string ncai, string sequence, string? amount = null)
+    {
+        var (date, time) = CurrentDateTime();
+        var msg = BuildField(TlvTags.Tm, TlvTags.MsgCancellationConfirmationRequest);
+        if (!string.IsNullOrEmpty(amount))
+            msg += BuildField(TlvTags.Mt, amount!);
+        msg += BuildField(TlvTags.Stan, stan)
+             + BuildField(TlvTags.Ncai, ncai)
+             + BuildField(TlvTags.Ns,   sequence)
              + BuildField(TlvTags.Da,   date)
              + BuildField(TlvTags.He,   time);
         return msg;
