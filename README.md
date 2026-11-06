@@ -172,6 +172,25 @@ Your App                    SDK                      Terminal
 ```
 
 > Phase 2 confirmation is sent automatically on the **same TCP connection**, within the 40-second window.
+> If the terminal refuses the confirmation (TM 102 with CR ≠ 000, e.g. 482 — the terminal
+> auto-reverses), the result is **not approved**.
+
+## Cancellation (void) Flow
+
+A void is also two-phase on one connection (NapsPay v5.4.4):
+
+```csharp
+var v = await client.CancelAsync(stan: p.Stan!, registerId: "01", cashierId: "00001",
+                                 sequence: "000001", amountCentimes: 15000);
+// TM 003 → TM 103 (void performed, merchant receipt)
+// TM 004 → TM 104 (void STAN, customer receipt)
+Console.WriteLine($"{v.IsSuccess} {v.Stan}");
+Console.WriteLine(v.CustomerReceipt?.ToPlainText());
+```
+
+The void is committed once TM 103 returns CR=000; if the terminal does not answer the
+TM 004 confirmation within `ConfirmationTimeout`, the result is still a success (without
+the customer receipt). A terminal that answers TM 003 directly with TM 104 is accepted.
 
 ---
 

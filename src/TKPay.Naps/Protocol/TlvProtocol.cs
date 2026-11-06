@@ -22,8 +22,9 @@ internal static class TlvProtocol
         new HashSet<string>(StringComparer.Ordinal) { "000", "001", "003", "007" };
 
     /// <summary>
-    /// CR (013) response codes from the v2 spec §6. 000 always means success;
-    /// 001/003/007 are also approvals. All others describe a specific condition.
+    /// CR (013) response codes from the v2 spec §6 and the NapsPay ISO response-code
+    /// table. 000 always means success; 001/003/007 are also approvals. All others
+    /// describe a specific condition.
     /// </summary>
     internal static readonly IReadOnlyDictionary<string, string> ResponseCodes =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -35,21 +36,81 @@ internal static class TlvProtocol
             ["100"] = "Do not honour",
             ["101"] = "Card expired",
             ["102"] = "Fraud suspected",
+            ["104"] = "Restricted card use",
             ["106"] = "Allowed PIN tries exceeded",
+            ["107"] = "Refer to card issuer",
+            ["108"] = "Refer to issuer special conditions",
+            ["109"] = "Invalid merchant",
+            ["110"] = "Invalid amount",
+            ["111"] = "Invalid card number",
+            ["112"] = "PIN information required",
+            ["114"] = "No account of requested type",
+            ["115"] = "Requested function not supported",
             ["116"] = "Insufficient funds",
             ["117"] = "Incorrect PIN",
             ["118"] = "Card not registered",
+            ["119"] = "Transaction not permitted to cardholder",
             ["120"] = "Transaction not permitted at terminal",
             ["121"] = "Withdrawal limit exceeded",
+            ["122"] = "Security violation",
+            ["123"] = "Withdrawal frequency exceeded",
+            ["125"] = "Card not in service",
+            ["126"] = "Invalid PIN format",
+            ["127"] = "PIN length error",
+            ["128"] = "PIN key sync error",
+            ["129"] = "Card counterfeiting suspected",
+            ["180"] = "Credit account does not exist",
+            ["181"] = "Cheque account does not exist",
+            ["182"] = "Savings account does not exist",
             ["183"] = "Invalid CVV",
+            ["184"] = "Invalid date",
+            ["200"] = "Do not honour — capture card",
+            ["201"] = "Card expired — capture card",
+            ["202"] = "Fraud suspected — capture card",
+            ["204"] = "Restricted card — capture card",
+            ["205"] = "Security service — capture card",
+            ["206"] = "PIN tries exceeded — capture card",
+            ["207"] = "Special conditions — capture card",
+            ["208"] = "Lost card — capture card",
+            ["209"] = "Stolen card — capture card",
+            ["210"] = "Counterfeiting suspected — capture card",
+            ["265"] = "Please use the chip",
             ["280"] = "Alternative amount cancelled",
+            ["281"] = "PIN verification failed",
+            ["299"] = "Capture card",
+            ["300"] = "Processing completed",
+            ["301"] = "Not supported by recipient",
             ["302"] = "Record not found on file",
+            ["303"] = "Duplicate record, old record replaced",
+            ["304"] = "Field edit error",
+            ["305"] = "File locked",
+            ["306"] = "Processing failure",
             ["307"] = "Format error",
+            ["308"] = "Duplicate processing, new record rejected",
+            ["309"] = "File unknown",
+            ["381"] = "Record not found. Account unsettled. Withdrawal not processed",
+            ["382"] = "Balance record deleted",
+            ["383"] = "Balance updated",
+            ["385"] = "Balance enquiry",
+            ["400"] = "Reversal approved",
             ["480"] = "Reversal accepted",
+            ["481"] = "Reversal amount incorrect",
             ["482"] = "Transaction already cancelled",
+            ["500"] = "Reconciliation successful",
+            ["503"] = "Totals not available",
+            ["581"] = "Reconciliation already done",
+            ["582"] = "Reconciliation procedure not available",
+            ["800"] = "Cut-off in progress",
+            ["880"] = "Connection not accepted",
+            ["888"] = "End of cut-off",
+            ["902"] = "Invalid transaction",
+            ["908"] = "Transaction recipient not referenced for routing",
             ["909"] = "System failure",
             ["911"] = "Issuer did not respond in time",
             ["912"] = "Card issuer unavailable",
+            ["992"] = "Issuer not found",
+            ["993"] = "PIN verification impossible",
+            ["994"] = "Transaction processing error",
             ["995"] = "Server processing error",
         };
 
@@ -148,10 +209,24 @@ internal static class TlvProtocol
     /// Pass <paramref name="amountCentimes"/> when targeting v5.4.4+.
     /// </summary>
     internal static string BuildCancellationRequest(
-        string stan, string ncai, string sequence, long? amountCentimes = null)
+        string stan, string ncai, string sequence, long? amountCentimes = null) =>
+        BuildCancellationFrame(TlvTags.MsgCancellationRequest, stan, ncai, sequence, amountCentimes);
+
+    /// <summary>
+    /// Build cancellation confirmation request TLV (TM=004) — Phase 2 of a void.
+    /// Sent on the same connection after an approved Cancellation Response (TM 103);
+    /// the terminal answers TM 104 with the void STAN and the customer receipt.
+    /// Carries the same fields as the TM 003 request.
+    /// </summary>
+    internal static string BuildCancellationConfirmationRequest(
+        string stan, string ncai, string sequence, long? amountCentimes = null) =>
+        BuildCancellationFrame(TlvTags.MsgCancellationConfirmationRequest, stan, ncai, sequence, amountCentimes);
+
+    private static string BuildCancellationFrame(
+        string tm, string stan, string ncai, string sequence, long? amountCentimes)
     {
         var (date, time) = CurrentDateTime();
-        var msg = BuildField(TlvTags.Tm, TlvTags.MsgCancellationRequest);
+        var msg = BuildField(TlvTags.Tm, tm);
         if (amountCentimes.HasValue)
             msg += BuildField(TlvTags.Mt, amountCentimes.Value.ToString());
         msg += BuildField(TlvTags.Stan, stan)

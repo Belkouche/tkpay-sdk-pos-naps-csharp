@@ -49,7 +49,8 @@ internal static class TlvTags
     internal const string MsgConfirmationResponse = "102";
     internal const string MsgCancellationRequest    = "003";
     internal const string MsgCancellationResponse   = "103";
-    internal const string MsgCancellationCorrection = "104";
+    internal const string MsgCancellationConfirmationRequest  = "004"; // Phase 2 of a void
+    internal const string MsgCancellationConfirmationResponse = "104";
     internal const string MsgSettlementRequest      = "010";
     internal const string MsgSettlementResponse     = "110";
     internal const string MsgDuplicateReceipt       = "008"; // Reprint last receipt

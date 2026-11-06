@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here.
 
+## [1.5.0]
+
+NapsPay v5.4.4 sync — gaps found by cross-checking the NAPS Pay ECR message
+definitions, `aslan-naps-sdk` and the emulator.
+
+### Added
+- **Two-phase void.** `CancelAsync` now completes the NapsPay cancellation flow on
+  the same connection: TM 003 → TM 103, then **TM 004 (Cancellation Confirmation)**
+  → TM 104. Previously only TM 003 was sent, leaving the terminal waiting for the
+  confirmation. A missing TM 104 reply (timeout) is tolerated — the void is committed
+  at TM 103. A terminal that answers TM 003 directly with TM 104 is still accepted.
+- `CancellationResult.MerchantReceipt` (DP of TM 103) and
+  `CancellationResult.CustomerReceipt` (DP of TM 104). `Stan` now prefers the void
+  STAN from TM 104.
+- `TlvProtocol.BuildCancellationConfirmationRequest` (TM 004).
+- Full NapsPay ISO response-code table in `TlvProtocol.ResponseCodes` /
+  `NapsTlv.DescribeResponse` (104, 107–129, 180–184, 200–210, 265, 281, 299–309,
+  381–385, 400, 481, 500, 503, 581, 582, 800, 880, 888, 902, 908, 992–994).
+
+### Fixed
+- **Refused payment confirmation reported as approved.** A TM 102 with CR ≠ 000
+  (e.g. 302 sale not found, 482 already cancelled — the terminal auto-reverses) now
+  yields a failed `PaymentResult` instead of an approval.
+
+### Changed
+- `TlvTags.MsgCancellationCorrection` (internal) renamed to
+  `MsgCancellationConfirmationResponse` ("104") and
+  `MsgCancellationConfirmationRequest` ("004") added — 104 is the reply to TM 004,
+  not a "correction".
+
 ## [1.4.0]
 
 Additive superset release — brings the SDK to feature-parity-or-better with the
