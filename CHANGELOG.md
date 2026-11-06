@@ -37,6 +37,11 @@ terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
   `NapsTlv.DescribeResponse` (104, 107–129, 180–184, 200–210, 265, 281, 299–309,
   381–385, 400, 481, 500, 503, 581, 582, 800, 880, 888, 902, 908, 992–994).
 
+- **Emulator void integration tests** (`EmulatorVoidIntegrationTests`, trait
+  `Category=Integration`): one test per emulator mode (`approve`, `void_480`,
+  `void_995`, `void_no_confirm`, `void_refuse --code 302`), skipped unless
+  `NAPS_EMULATOR_MODE` matches. Port via `NAPS_EMULATOR_PORT` (default 4444).
+
 ### Fixed
 - **Refused payment confirmation reported as approved.** A TM 102 with CR ≠ 000
   (e.g. 302 sale not found, 482 already cancelled — the terminal auto-reverses) now

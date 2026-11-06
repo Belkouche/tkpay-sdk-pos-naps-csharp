@@ -199,6 +199,13 @@ reported as `IsSuccess`. It keeps `Stan` (the transaction being cancelled) and t
 TM 103 `MerchantReceipt`. TM 004 carries the sequence in NS (same value as TM 003) and
 echoes the amount (MT) returned in TM 103 — the v5.4.4 terminal refuses TM 004 without it.
 
+Void integration tests against `tkpay-naps-emulator` run one emulator mode at a time:
+
+```bash
+python3 naps_emulator.py --port 4451 --mode void_995      # approve | void_480 | void_995 | void_no_confirm | void_refuse --code 302
+NAPS_EMULATOR_MODE=void_995 NAPS_EMULATOR_PORT=4451 dotnet test --filter Category=Integration
+```
+
 ---
 
 ## Test Connection
