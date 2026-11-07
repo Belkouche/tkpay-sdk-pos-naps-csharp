@@ -18,7 +18,7 @@ public sealed class PaymentResult
     public string? Stan { get; }
 
     /// <summary>
-    /// Masked card number — first 6 + last 4 digits only (PCI DSS).
+    /// Masked card number — first 6 + last 4 digits only; the full PAN is never exposed.
     /// Example: <c>516794******3315</c>
     /// </summary>
     public string? MaskedCardNumber { get; }

@@ -329,7 +329,7 @@ internal static class TlvProtocol
 
     /// <summary>
     /// Parse a TLV string into a tag → value dictionary.
-    /// PAN in tag 007 (NCAR) is masked immediately on parse (PCI DSS).
+    /// PAN in tag 007 (NCAR) is masked immediately on parse, so the full PAN never leaves the parser.
     /// </summary>
     internal static Dictionary<string, string> Parse(string tlv)
     {
