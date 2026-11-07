@@ -23,7 +23,7 @@ public class NapsPay544FlowTests
     /// <paramref name="reply"/>(frame) + '!' (or stay silent when it returns null).
     /// Returns the port and a task yielding every request frame received.
     /// </summary>
-    private static (int port, Task<List<string>> requests) StartTerminal(Func<string, string?> reply)
+    internal static (int port, Task<List<string>> requests) StartTerminal(Func<string, string?> reply)
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -57,7 +57,7 @@ public class NapsPay544FlowTests
         return (port, task);
     }
 
-    private static NapsPayClient Client(int port, TimeSpan? confirmationTimeout = null) =>
+    internal static NapsPayClient Client(int port, TimeSpan? confirmationTimeout = null) =>
         new(new NapsConfig("127.0.0.1", port,
             timeout: TimeSpan.FromSeconds(5),
             confirmationTimeout: confirmationTimeout ?? TimeSpan.FromSeconds(5)));

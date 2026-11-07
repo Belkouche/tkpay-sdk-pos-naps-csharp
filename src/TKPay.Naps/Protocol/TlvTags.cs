@@ -12,7 +12,7 @@ internal static class TlvTags
     internal const string Ns   = "004"; // Sequence Number (6 chars)
     internal const string Nsa  = "005"; // Cancellation Sequence Number (6 chars)
     internal const string Nhc  = "006"; // Hostess Number (2 chars)
-    internal const string Ncar = "007"; // Card Number — masked immediately on parse (16 chars)
+    internal const string Ncar = "007"; // Card Number (16 chars) — masked immediately on parse
     internal const string Stan = "008"; // System Trace Audit Number (6 chars)
     internal const string Na   = "009"; // Authorization Number (6 chars)
     internal const string Dp   = "010"; // Printable Data / Receipt (up to 3500 chars)

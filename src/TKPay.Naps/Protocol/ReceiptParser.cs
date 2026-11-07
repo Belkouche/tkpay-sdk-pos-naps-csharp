@@ -17,7 +17,8 @@ namespace TKPay.Naps.Protocol;
 /// The block is read by TLV lengths, so '*' or '?' inside a line's text (e.g. the
 /// masked PAN "516794******3315") is kept as text; they are only separators at a
 /// field boundary. Every line is kept, in order, exactly as sent — nothing is added,
-/// merged or blanked. A full 16-digit PAN in the text is masked (first 6 + last 4).
+/// merged or blanked. A card number in the text is masked (first 6 + last 4 digits);
+/// the rest of the line is unchanged.
 /// </para>
 /// </summary>
 internal static class ReceiptParser

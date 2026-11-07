@@ -297,8 +297,8 @@ string? ingenico = NapsPayClient.FindPort();  // best Ingenico match, or null
 
 ### Receipts (DP block)
 
-The receipt is the DP field (tag 010) the terminal sends — a certified layout the SDK
-reproduces exactly: every line, in order, with nothing added, merged or blanked. Each
+The receipt is the DP field (tag 010) the terminal sends, in the layout the terminal
+defines; the SDK reproduces it exactly: every line, in order, with nothing added, merged or blanked. Each
 line is nested TLV — line number (030), style (031: `S` normal, `G` bold), alignment
 (032: `C` centre, `D` right, `G` left) and text (033) — lines are separated by `*`
 and `?` ends the block. The SDK reads the block by TLV lengths, so a `*` inside the
@@ -375,10 +375,12 @@ foreach (var line in copy.CustomerReceipt?.Lines ?? Array.Empty<ReceiptLine>())
 
 ### PAN masking
 
-The card number (NCAR, tag 007) is masked the moment a reply is parsed — only the
-first 6 and last 4 digits are kept (`516794******3315`). If a full 16-digit number
-ever appears in receipt text it is masked the same way; the line itself is kept. The full PAN never reaches your code. The same
-helpers are public:
+Card numbers are masked (first 6 + last 4 digits, e.g. `516794******3315`) the moment
+the terminal's reply is parsed, before anything else sees it: the card number field
+(NCAR, tag 007) and any card number in the receipt text (13 to 19 digits, with or
+without spaces or dashes — the rest of the line is kept as is). The full number is
+never exposed in any result, receipt, raw field or error message, and never logged;
+the SDK itself writes no logs. The same helpers are public:
 
 ```csharp
 using TKPay.Naps.Protocol;

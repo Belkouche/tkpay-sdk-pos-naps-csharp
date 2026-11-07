@@ -18,8 +18,9 @@ public static class NapsTlv
         TlvProtocol.BuildField(tag, value);
 
     /// <summary>
-    /// Parse a TLV string into a tag → value dictionary. Parsing stops at the first
-    /// end-of-message terminator ('!' v2, '?' v1); the PAN in tag 007 is masked on parse.
+    /// Parse a TLV string into a tag → value dictionary. Parsing stops at an
+    /// end-of-message terminator ('!' v2, '?' v1) on a field boundary. Card numbers
+    /// (tag 007, and any in the DP receipt text) are masked (first 6 + last 4 digits).
     /// </summary>
     public static Dictionary<string, string> Parse(string tlv) =>
         TlvProtocol.Parse(tlv);
@@ -39,7 +40,10 @@ public static class NapsTlv
     public static string MaskPan(string pan) =>
         TlvProtocol.MaskCardNumber(pan);
 
-    /// <summary>Mask any 16-digit card numbers found in free text (e.g. receipt lines).</summary>
+    /// <summary>
+    /// Mask every card number found in free text (e.g. receipt lines): 13-19 digits,
+    /// optionally separated by spaces or dashes; first 6 + last 4 digits kept.
+    /// </summary>
     public static string MaskPansInText(string text) =>
         TlvProtocol.MaskCardNumbersInText(text);
 }
