@@ -30,6 +30,12 @@ terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
   value as the TM 003 it confirms, not NSA (005). MT is echoed verbatim from TM 103
   (falling back to the request amount); the live terminal refuses TM 004 without it
   (CR 909).
+- **Parsed receipts on report results:** `TotalsResult.Receipt`,
+  `ReferencingResult.Receipt` and `SettlementResult.Receipt` (TM 110 / TM 113 DP).
+  `ReceiptText` keeps the raw block.
+- **Receipt tests:** golden merchant/customer copies parsed from captured emulator
+  DP blocks (payment and void), and an `approve`-mode emulator integration test for
+  both copies of a payment and its void.
 - **`DuplicateReceiptByStanAsync(stan, …)`** — TM 008 carrying the STAN (spec §4.6)
   to reprint a given transaction of the current business day, e.g. to check a
   pending void. `DuplicateReceiptAsync` (last transaction) is unchanged.
@@ -49,6 +55,17 @@ terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
   `NAPS_EMULATOR_MODE` matches. Port via `NAPS_EMULATOR_PORT` (default 4444).
 
 ### Fixed
+- **Receipts now reproduce the terminal's DP block exactly (spec §5).** The parser
+  split the block on `*`, which cut the masked-PAN line (`516794******3315`) and left
+  it blank; it now reads lines by TLV length, treating `*` / `?` as separators only at
+  a field boundary. Every line is kept in order with its line number, bold and
+  alignment; nothing is added, merged or blanked.
+- **No SDK-added receipt text.** Removed the "Powered by NAPS" footer and the
+  rewrite of centred "Naps" lines to "TKPAY".
+- **'!' / '?' inside a frame no longer truncate it.** `TlvProtocol.Parse` stops at a
+  terminator only on a field boundary, and the transports no longer strip from the
+  last '!' / '?' (TM 103/104 arrive without a terminator, so receipt text containing
+  either character used to cut the frame).
 - **Refused payment confirmation reported as approved.** A TM 102 with CR ≠ 000
   (e.g. 302 sale not found, 482 already cancelled — the terminal auto-reverses) now
   yields a failed `PaymentResult` instead of an approval.

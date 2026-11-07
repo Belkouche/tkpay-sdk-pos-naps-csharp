@@ -3,13 +3,22 @@ using TKPay.Naps.Models;
 namespace TKPay.Naps.Protocol;
 
 /// <summary>
-/// Parses the DP (010) tag value from NAPS Pay into a structured <see cref="Receipt"/>.
+/// Parses the DP (010) tag value from NAPS Pay into a structured <see cref="Receipt"/>
+/// (spec §5).
 ///
 /// DP contains nested TLV sub-tags per receipt line:
 ///   030 — line number (2 chars)
 ///   031 — format: S=Simple, G=Gras/Bold
 ///   032 — alignment: C=Center, D=Droite(Right), G=Gauche(Left)
 ///   033 — content (variable)
+/// Lines are separated by '*'; '?' ends the block.
+///
+/// <para>
+/// The block is read by TLV lengths, so '*' or '?' inside a line's text (e.g. the
+/// masked PAN "516794******3315") is kept as text; they are only separators at a
+/// field boundary. Every line is kept, in order, exactly as sent — nothing is added,
+/// merged or blanked. A full 16-digit PAN in the text is masked (first 6 + last 4).
+/// </para>
 /// </summary>
 internal static class ReceiptParser
 {
@@ -17,54 +26,53 @@ internal static class ReceiptParser
     {
         var lines = new List<ReceiptLine>();
 
-        // The terminal separates sub-TLV entry groups with '*'.
-        // Each group is: 030(lineNum) 031(format) 032(alignment) 033(content)
-        // Splitting on '*' avoids digit sequences inside field values being
-        // misinterpreted as TLV tags (e.g. a PAN containing "030002").
-        var entries = dpValue.Split('*');
-        foreach (var entry in entries)
+        string? lineNumber = null;
+        string? format     = null;
+        string? alignment  = null;
+        string? content    = null;
+
+        void EndLine()
         {
-            if (entry.Length < 6) continue;
-
-            string lineNumber = "";
-            string format    = "S";
-            string alignment = "G";
-            string content   = "";
-
-            var index = 0;
-            while (index + 6 <= entry.Length)
-            {
-                var tag    = entry.Substring(index, 3);
-                var lenStr = entry.Substring(index + 3, 3);
-
-                if (!int.TryParse(lenStr, out var length)) break;
-                if (index + 6 + length > entry.Length) break;
-
-                var value = entry.Substring(index + 6, length);
-
-                switch (tag)
-                {
-                    case TlvTags.ReceiptLineNumber: lineNumber = value; break;
-                    case TlvTags.ReceiptFormat:     format    = value; break;
-                    case TlvTags.ReceiptAlignment:  alignment = value; break;
-                    case TlvTags.ReceiptContent:    content   = value; break;
-                }
-
-                index += 6 + length;
-            }
-
-            if (lineNumber.Length > 0)
-                lines.Add(MakeLine(lineNumber, content, format, alignment));
+            if (lineNumber is null && format is null && alignment is null && content is null) return;
+            lines.Add(MakeLine(lineNumber ?? "", content ?? "", format ?? "S", alignment ?? "G"));
+            lineNumber = format = alignment = content = null;
         }
 
-        // TKpay branding + PAN masking
-        var branded = ApplyBranding(lines);
-        var masked  = branded
-            .Select(l => l with { Text = TlvProtocol.MaskCardNumbersInText(l.Text) })
-            .ToList();
+        var index = 0;
+        while (index < dpValue.Length)
+        {
+            var c = dpValue[index];
+            if (c == '*') { EndLine(); index++; continue; }
+            if (c == '?') break;
+            if (index + 6 > dpValue.Length) break;
 
-        return new Receipt(masked, type);
+            var tag = dpValue.Substring(index, 3);
+            if (!int.TryParse(dpValue.Substring(index + 3, 3), out var length)) break;
+            if (index + 6 + length > dpValue.Length) break;
+
+            var value = dpValue.Substring(index + 6, length);
+
+            switch (tag)
+            {
+                case TlvTags.ReceiptLineNumber:
+                    if (lineNumber is not null) EndLine(); // next line without a '*' separator
+                    lineNumber = value;
+                    break;
+                case TlvTags.ReceiptFormat:    format    = value; break;
+                case TlvTags.ReceiptAlignment: alignment = value; break;
+                case TlvTags.ReceiptContent:   content   = value; break;
+            }
+
+            index += 6 + length;
+        }
+        EndLine();
+
+        return new Receipt(lines, type);
     }
+
+    /// <summary>Parse the DP (010) field of a reply, or <c>null</c> when it has none.</summary>
+    internal static Receipt? FromFields(IReadOnlyDictionary<string, string> fields, ReceiptType type) =>
+        fields.TryGetValue(TlvTags.Dp, out var dp) ? Parse(dp, type) : null;
 
     // -------------------------------------------------------------------------
     // Helpers
@@ -77,7 +85,7 @@ internal static class ReceiptParser
         string alignmentCode) =>
         new(
             LineNumber: lineNumber,
-            Text:       content,
+            Text:       TlvProtocol.MaskCardNumbersInText(content),
             Bold:       format == "G",
             Alignment:  alignmentCode switch
             {
@@ -86,34 +94,4 @@ internal static class ReceiptParser
                 _   => Alignment.Left
             }
         );
-
-    /// <summary>
-    /// Replace the first centred "Naps" header line with "TKPAY" + "Powered by NAPS".
-    /// </summary>
-    private static List<ReceiptLine> ApplyBranding(List<ReceiptLine> lines)
-    {
-        var result = new List<ReceiptLine>(lines.Count + 1);
-
-        foreach (var line in lines)
-        {
-            if (line.Alignment == Alignment.Center
-                && line.Text.Contains("Naps", StringComparison.OrdinalIgnoreCase))
-            {
-                result.Add(line with { Text = "TKPAY", Bold = true });
-            }
-            else
-            {
-                result.Add(line);
-            }
-        }
-
-        // Append "Powered by NAPS" as the last line
-        var lastNum = result.Count > 0
-            && int.TryParse(result[^1].LineNumber, out var n)
-                ? (n + 1).ToString("D2")
-                : "99";
-        result.Add(new ReceiptLine(lastNum, "Powered by NAPS", false, Alignment.Center));
-
-        return result;
-    }
 }

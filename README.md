@@ -244,16 +244,16 @@ var byStan = await client.DuplicateReceiptByStanAsync("124589");
 Console.WriteLine(byStan.IsApproved() ? byStan.MerchantReceipt?.ToPlainText() : $"Not found [{byStan.ResponseCode}]");
 ```
 
-**Totals (TM 010)** — the terminal's running totals. `ReceiptText` is the raw DP
-block (tag 010) exactly as received — nested TLV lines, not parsed into a `Receipt`:
+**Totals (TM 010)** — the terminal's running totals, as a `Receipt`:
 
 ```csharp
 var totals = await client.TotalsAsync();
-Console.WriteLine(totals.Success ? totals.ReceiptText : $"Totals failed [{totals.ResponseCode}]");
+Console.WriteLine(totals.Success ? totals.Receipt?.ToPlainText() : $"Totals failed [{totals.ResponseCode}]");
 ```
 
 **Settlement** — `SettlementAsync` also sends TM 010 (the spec has no separate
-settlement message); it returns `Success`, `ResponseCode`, `Date`, `Time`, `Error`:
+settlement message); it returns `Success`, `ResponseCode`, `Date`, `Time`, `Error`
+and the terminal's `Receipt`:
 
 ```csharp
 var settlement = await client.SettlementAsync(registerId: "01", cashierId: "00001");
@@ -261,12 +261,12 @@ Console.WriteLine(settlement.Success ? $"Settled {settlement.Date} {settlement.T
 ```
 
 **Referencing (TM 013)** — load a parameter set on the terminal: `"01"` merchant
-(default), `"02"` recharge. As with totals, `ReceiptText` is the raw DP block:
+(default), `"02"` recharge:
 
 ```csharp
 var referencing = await client.ReferencingAsync(tide: "01");
 Console.WriteLine($"Referencing [{referencing.ResponseCode}] set={referencing.ParameterSet}");
-Console.WriteLine(referencing.ReceiptText);
+Console.WriteLine(referencing.Receipt?.ToPlainText());
 ```
 
 **Reset PIN pad (TM 012)** — sends the command and ignores the reply. TM 012 is not
@@ -297,34 +297,87 @@ string? ingenico = NapsPayClient.FindPort();  // best Ingenico match, or null
 
 ### Receipts (DP block)
 
-Receipts arrive in the DP field (tag 010) as a list of lines, each encoded as nested
-TLV: line number (030), style (031: `S` normal, `G` bold), alignment (032: `C`
-centre, `D` right, `G` left) and text (033). For payments, voids and duplicates the
-SDK parses them into a `Receipt` (totals and referencing return the raw DP string):
+The receipt is the DP field (tag 010) the terminal sends — a certified layout the SDK
+reproduces exactly: every line, in order, with nothing added, merged or blanked. Each
+line is nested TLV — line number (030), style (031: `S` normal, `G` bold), alignment
+(032: `C` centre, `D` right, `G` left) and text (033) — lines are separated by `*`
+and `?` ends the block. The SDK reads the block by TLV lengths, so a `*` inside the
+text (as in the masked PAN `516794******3315`) stays part of the line.
+
+Which copy comes from which message:
+
+| Operation | `MerchantReceipt` ("Copie Commercant") | `CustomerReceipt` ("Copie Client") |
+|---|---|---|
+| Payment (`PaymentResult`) | TM 101 | TM 102 |
+| Void (`CancellationResult`) | TM 103 (kept when the void is pending) | TM 104 |
+| Declined payment | the decline slip from TM 101, if sent | — |
+| Duplicate (`DuplicateReceiptAsync` / `…ByStanAsync`) | TM 108, as sent | — |
+
+`TotalsResult`, `ReferencingResult` and `SettlementResult` carry the TM 110 / TM 113
+block as `Receipt` (their `ReceiptText` is the same block unparsed).
+
+Printing both copies of a payment:
 
 ```csharp
 var sale = await client.ProcessPaymentAsync(
-    new PaymentRequest(amount: 150.00m, registerId: "01", cashierId: "00001"));
+    new PaymentRequest(amount: 10.00m, registerId: "01", cashierId: "00001"));
 
-if (sale.MerchantReceipt is { } receipt)
+if (sale.IsApproved())
 {
-    Console.WriteLine(receipt.ToPlainText());      // lines joined with newlines
-    Console.WriteLine(receipt.ToFormattedText());  // "[B]" bold, "[C]/[R]/[L]" alignment prefixes
-
-    foreach (var line in receipt.Lines)            // for your own printer driver
-        Console.WriteLine($"{line.LineNumber} bold={line.Bold} {line.Alignment}: {line.Text}");
+    Console.WriteLine(sale.MerchantReceipt?.ToPlainText());  // keep for the shop
+    Console.WriteLine(sale.CustomerReceipt?.ToPlainText());  // hand to the customer
 }
 ```
 
-While parsing, the SDK replaces every centred line containing "Naps" with a bold
-"TKPAY", appends a "Powered by NAPS" footer line, and masks any 16-digit card number
-in the text.
+A 10.00 MAD payment against the emulator prints this customer copy (the merchant copy
+is the same with "Copie Commercant"; void copies end with "ANNULATION" then the copy
+line):
+
+```
+TKpay
+--------------------------------
+07/11/2026 00:14:48
+TKPAY DEMO
+CASABLANCA
+--------------------------------
+VISA
+516794******3315
+Terminal: 00000001
+Transaction: 599374
+Autorisation: 551901
+STAN: 599374
+--------------------------------
+MONTANT: 10.00 MAD
+--------------------------------
+DEBIT
+Copie Client
+```
+
+`ToPlainText()` joins the lines' text with newlines. Bold and alignment stay on each
+`ReceiptLine` (`LineNumber`, `Text`, `Bold`, `Alignment`) for your printer driver;
+`ToFormattedText()` is a quick view with `[B]` and `[C]`/`[R]`/`[L]` prefixes:
+
+```csharp
+var copy = await client.ProcessPaymentAsync(
+    new PaymentRequest(amount: 10.00m, registerId: "01", cashierId: "00001"));
+
+foreach (var line in copy.CustomerReceipt?.Lines ?? Array.Empty<ReceiptLine>())
+{
+    var text = line.Alignment switch
+    {
+        Alignment.Center => line.Text.PadLeft((32 + line.Text.Length) / 2).PadRight(32),
+        Alignment.Right  => line.Text.PadLeft(32),
+        _                => line.Text
+    };
+    Console.WriteLine(line.Bold ? $"\u001b[1m{text}\u001b[0m" : text);  // terminal bold; use your printer's bold command
+}
+```
 
 ### PAN masking
 
 The card number (NCAR, tag 007) is masked the moment a reply is parsed — only the
-first 6 and last 4 digits are kept (`516794******3315`), and 16-digit numbers inside
-receipt text are masked the same way. The full PAN never reaches your code. The same
+first 6 and last 4 digits are kept (`516794******3315`). If a full 16-digit number
+ever appears in receipt text it is masked the same way; the line itself is kept. The full PAN never reaches your code. The same
 helpers are public:
 
 ```csharp
@@ -453,7 +506,9 @@ NAPS_EMULATOR_MODE=void_995 NAPS_EMULATOR_PORT=4451 dotnet test --filter Categor
 ```
 
 Modes covered: `approve`, `void_480`, `void_995`, `void_no_confirm` and
-`void_refuse` (start it with `--code 302`).
+`void_refuse` (start it with `--code 302`). In `approve` mode the receipt tests also
+run: a 10.00 MAD payment and its void must produce the golden merchant and customer
+copies shown in [Receipts](#receipts-dp-block).
 
 ---
 

@@ -1,3 +1,5 @@
+using TKPay.Naps.Protocol;
+
 namespace TKPay.Naps.Models;
 
 /// <summary>
@@ -20,18 +22,23 @@ public sealed class SettlementResult
     /// <summary>Human-readable error message when <see cref="Success"/> is false.</summary>
     public string? Error { get; }
 
+    /// <summary>The DP (010) receipt returned by the terminal, exactly as sent, if any.</summary>
+    public Receipt? Receipt { get; }
+
     internal SettlementResult(
         bool success,
         string responseCode,
         string? date = null,
         string? time = null,
-        string? error = null)
+        string? error = null,
+        Receipt? receipt = null)
     {
         Success = success;
         ResponseCode = responseCode;
         Date = date;
         Time = time;
         Error = error;
+        Receipt = receipt;
     }
 
     internal static SettlementResult Accepted(IReadOnlyDictionary<string, string> fields) =>
@@ -39,13 +46,15 @@ public sealed class SettlementResult
             success: true,
             responseCode: fields.GetValueOrDefault(TlvTags.CR, "000"),
             date: fields.GetValueOrDefault(TlvTags.Da),
-            time: fields.GetValueOrDefault(TlvTags.He)
+            time: fields.GetValueOrDefault(TlvTags.He),
+            receipt: ReceiptParser.FromFields(fields, ReceiptType.Merchant)
         );
 
-    internal static SettlementResult Declined(string responseCode) =>
+    internal static SettlementResult Declined(string responseCode, Receipt? receipt = null) =>
         new(
             success: false,
             responseCode: responseCode,
+            receipt: receipt,
             error: responseCode switch
             {
                 "052" => "Already settled today",

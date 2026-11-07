@@ -196,9 +196,10 @@ internal sealed class NapsConnection : ITerminalConnection
         // Decode as UTF-8 so char-based TLV length fields align with string indices
         var result = Encoding.UTF8.GetString(rawBytes.ToArray());
 
-        // Strip the trailing terminator ('!' v2, '?' v1) if present
-        var termPos = result.LastIndexOfAny(new[] { '!', '?' });
-        return termPos >= 0 ? result[..termPos] : result;
+        // The terminator ('!' v2, '?' v1), when present, is left in place: TlvProtocol.Parse
+        // stops at it on a field boundary. Stripping by character could cut a frame sent
+        // without one (TM 103/104) whose receipt text contains or ends with '!' or '?'.
+        return result;
     }
 
     // -------------------------------------------------------------------------

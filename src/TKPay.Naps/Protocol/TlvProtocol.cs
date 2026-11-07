@@ -335,16 +335,15 @@ internal static class TlvProtocol
     {
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        // Stop at the first end-of-message terminator ('!' v2, '?' v1) so any
-        // trailing receipt content or noise after it is ignored. Both are accepted
-        // so the parser is protocol-version agnostic.
-        var term = tlv.IndexOfAny(new[] { '!', '?' });
-        if (term >= 0) tlv = tlv[..term];
-
+        // Stop at an end-of-message terminator ('!' v2, '?' v1) found at a field
+        // boundary, so trailing noise after it is ignored. Lengths drive the walk:
+        // a '!' or '?' inside a value (e.g. receipt text in DP) is kept as data.
         var index = 0;
 
         while (index + 6 <= tlv.Length)
         {
+            if (tlv[index] is '!' or '?') break;
+
             var tag = tlv.Substring(index, 3);
             var lenStr = tlv.Substring(index + 3, 3);
 

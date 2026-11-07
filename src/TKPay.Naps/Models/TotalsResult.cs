@@ -11,6 +11,9 @@ public sealed class TotalsResult
     /// <summary>Raw NAPS Pay response code ("000" = OK).</summary>
     public string ResponseCode { get; init; } = "";
 
-    /// <summary>Receipt / printable totals text (DP/010) returned by the terminal, if any.</summary>
+    /// <summary>Raw DP (010) block returned by the terminal (nested TLV, unparsed), if any.</summary>
     public string? ReceiptText { get; init; }
+
+    /// <summary>The DP (010) receipt parsed into lines, exactly as sent, if any.</summary>
+    public Receipt? Receipt { get; init; }
 }

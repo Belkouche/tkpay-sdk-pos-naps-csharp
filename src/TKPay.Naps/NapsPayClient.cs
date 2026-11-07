@@ -120,7 +120,7 @@ public sealed class NapsPayClient
 
         return responseCode == TlvTags.RcApproved
             ? SettlementResult.Accepted(fields)
-            : SettlementResult.Declined(responseCode);
+            : SettlementResult.Declined(responseCode, ReceiptParser.FromFields(fields, ReceiptType.Merchant));
     }
 
     /// <summary>
@@ -286,7 +286,8 @@ public sealed class NapsPayClient
             Success = rc == TlvTags.RcApproved,
             ResponseCode = rc,
             ParameterSet = tide,
-            ReceiptText = fields.GetValueOrDefault(TlvTags.Dp)
+            ReceiptText = fields.GetValueOrDefault(TlvTags.Dp),
+            Receipt = ReceiptParser.FromFields(fields, ReceiptType.Merchant)
         };
     }
 
@@ -308,7 +309,8 @@ public sealed class NapsPayClient
         {
             Success = rc == TlvTags.RcApproved,
             ResponseCode = rc,
-            ReceiptText = fields.GetValueOrDefault(TlvTags.Dp)
+            ReceiptText = fields.GetValueOrDefault(TlvTags.Dp),
+            Receipt = ReceiptParser.FromFields(fields, ReceiptType.Merchant)
         };
     }
 
