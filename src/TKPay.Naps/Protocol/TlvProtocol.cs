@@ -11,9 +11,10 @@ namespace TKPay.Naps.Protocol;
 /// </summary>
 internal static class TlvProtocol
 {
-    // A card number in free text: 13-19 digits, optionally separated by a single
-    // whitespace, dash or dot, not part of a longer digit run.
-    private static readonly Regex _panPattern = new(@"(?<!\d)\d(?:[\s.\-]?\d){12,18}(?!\d)", RegexOptions.Compiled);
+    // A card-shaped run in free text: 13 or more digits, each next digit adjacent or
+    // after exactly one space, dash, dot, tab or non-breaking space. No upper bound —
+    // longer runs are masked too (fail closed).
+    private static readonly Regex _panPattern = new(@"(?<!\d)\d(?:[ \-.\t\u00A0]?\d){12,}", RegexOptions.Compiled);
 
     // -------------------------------------------------------------------------
     // Response codes (§6)
@@ -357,7 +358,7 @@ internal static class TlvProtocol
 
             // Mask card numbers immediately — the full number never leaves this method.
             if (tag == TlvTags.Ncar)
-                value = MaskCardNumber(value);
+                value = MaskPan(value);
             else if (tag == TlvTags.Dp)
                 value = MaskCardNumbersInDp(value);
 
@@ -373,8 +374,21 @@ internal static class TlvProtocol
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Mask a card number: the first 6 and last 4 digits are kept, every other digit
-    /// becomes '*'. Spaces or dashes stay in place, so the length is unchanged.
+    /// Mask a card number field (tag 007): always first 6 digits + '*' per hidden digit
+    /// + last 4 digits, whatever grouping it arrived in.
+    /// Example: "5167 9400 0012 3315" → 516794******3315. A value with 10 digits or fewer
+    /// (e.g. already masked) is returned unchanged.
+    /// </summary>
+    internal static string MaskPan(string pan)
+    {
+        var digits = new string(pan.Where(char.IsDigit).ToArray());
+        if (digits.Length <= 10) return pan;
+        return digits[..6] + new string('*', digits.Length - 10) + digits[^4..];
+    }
+
+    /// <summary>
+    /// Mask a card-shaped run in place: the first 6 and last 4 digits are kept, every
+    /// other digit becomes '*'. Separators stay in place, so the length is unchanged.
     /// Example: 5167940123453315 → 516794******3315; "5167 9400 0012 3315" → "5167 94** **** 3315".
     /// </summary>
     internal static string MaskCardNumber(string pan)
@@ -394,8 +408,10 @@ internal static class TlvProtocol
     }
 
     /// <summary>
-    /// Mask every card number found in free text (e.g. receipt lines): 13-19 digits,
-    /// optionally separated by whitespace, dashes or dots. The rest of the text is unchanged.
+    /// Mask every card-shaped run in free text (e.g. receipt lines): 13 or more digits,
+    /// adjacent or separated by exactly one space, dash, dot, tab or non-breaking space.
+    /// Slashes, colons and commas are not separators, so dates, times and amounts are
+    /// untouched. The rest of the text and its length are unchanged.
     /// </summary>
     internal static string MaskCardNumbersInText(string text) =>
         _panPattern.Replace(text, m => MaskCardNumber(m.Value));

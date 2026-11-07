@@ -375,12 +375,21 @@ foreach (var line in copy.CustomerReceipt?.Lines ?? Array.Empty<ReceiptLine>())
 
 ### PAN masking
 
-Card numbers are masked (first 6 + last 4 digits, e.g. `516794******3315`) the moment
-the terminal's reply is parsed, before anything else sees it: the card number field
-(NCAR, tag 007) and any card number in the receipt text (13 to 19 digits, with or
-without spaces, dashes or dots — the rest of the line is kept as is). The full number is
-never exposed in any result, receipt, raw field or error message, and never logged;
-the SDK itself writes no logs. The same helpers are public:
+Card numbers are masked (first 6 + last 4 digits) the moment the terminal's reply is
+parsed, before anything else sees it:
+
+- **Card number field (NCAR, tag 007)** — always returned as first 6 digits, one `*`
+  per hidden digit, last 4 digits (`516794******3315`), whatever grouping it arrived in.
+- **Receipt text** — any run of 13 or more digits, where consecutive digits are
+  adjacent or separated by exactly one space, dash, dot, tab or non-breaking space,
+  has every digit masked except the first 6 and last 4 of the run (longer runs too).
+  Separators and line length stay as they were: `5167 9400 0012 3315` →
+  `5167 94** **** 3315`. Dates and times (`07/11/2026 00:12:10`), amounts (`10.00`,
+  `1 250,00`), STAN, terminal and authorisation numbers, and any shorter digit run are
+  left untouched.
+
+The full number is never exposed in any result, receipt, raw field or error message,
+and never logged; the SDK itself writes no logs. The same helpers are public:
 
 ```csharp
 using TKPay.Naps.Protocol;

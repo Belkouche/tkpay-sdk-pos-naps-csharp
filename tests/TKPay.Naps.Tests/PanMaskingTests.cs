@@ -72,10 +72,45 @@ public class PanMaskingTests
     [InlineData("MID: 000000000001")]          // 12 digits — not a card number
     [InlineData("07/11/2026 00:11:32")]
     [InlineData("STAN: 647138")]
-    [InlineData("ID 12345678901234567890123")] // 23-digit run — not a card number
+    [InlineData("1 250,00 MAD")]
+    [InlineData("Autorisation: 703336")]
     public void MaskCardNumbersInText_LeavesOtherTextAlone(string text)
     {
         Assert.Equal(text, TlvProtocol.MaskCardNumbersInText(text));
+    }
+
+    // Shared rule across the NAPS SDKs: a card-shaped run is 13+ digits, adjacent or
+    // separated by exactly one space, dash, dot, tab or NBSP; mask all but the first 6
+    // and last 4 digits of the whole run, keep separators and length.
+    [Theory]
+    [InlineData("5167940000123315", "516794******3315")]
+    [InlineData("5167 9400 0012 3315", "5167 94** **** 3315")]
+    [InlineData("5167-9400-0012-3315", "5167-94**-****-3315")]
+    [InlineData("5167.9400.0012.3315", "5167.94**.****.3315")]
+    [InlineData("6011000990139424127", "601100*********4127")]
+    [InlineData("5167 9400 0012 3315 0000", "5167 94** **** **** 0000")]
+    [InlineData("07/11/2026 00:12:10", "07/11/2026 00:12:10")]
+    [InlineData("MONTANT: 10.00 MAD", "MONTANT: 10.00 MAD")]
+    [InlineData("Terminal: 00000001", "Terminal: 00000001")]
+    [InlineData("ID 12345678901234567890123", "ID 123456*************0123")]   // >19 digits: fail closed
+    [InlineData("5167  9400 0012 3315", "5167  9400 0012 3315")]              // two spaces split the run
+    public void SharedRule_TestVectors(string input, string expected)
+    {
+        Assert.Equal(expected, TlvProtocol.MaskCardNumbersInText(input));
+        Assert.Equal(expected, NapsTlv.MaskPansInText(input));
+    }
+
+    [Theory]
+    [InlineData("5167940000123315")]
+    [InlineData("5167 9400 0012 3315")]
+    [InlineData("5167-9400-0012-3315")]
+    [InlineData("5167.9400.0012.3315")]
+    [InlineData("516794******3315")]
+    public void Ncar_AlwaysFirst6StarsLast4_WhateverGrouping(string ncar)
+    {
+        var fields = TlvProtocol.Parse(F("001", "101") + F("007", ncar));
+
+        Assert.Equal("516794******3315", fields[TlvTags.Ncar]);
     }
 
     [Fact]

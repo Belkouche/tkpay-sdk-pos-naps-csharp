@@ -55,9 +55,12 @@ terminal test recorded in `tkpay-sdk-pos-naps-rn` 5fcfeb0.
   `NAPS_EMULATOR_MODE` matches. Port via `NAPS_EMULATOR_PORT` (default 4444).
 
 ### Fixed
-- **Card numbers masked everywhere (first 6 + last 4 digits).** Masking now covers any
-  13-19 digit card number in receipt text, with or without spaces, dashes or dots (it
-  previously caught only 16 contiguous digits), and the raw DP block is masked at
+- **Card numbers masked everywhere (first 6 + last 4 digits).** Tag 007 is always
+  returned as first 6 + `*` per hidden digit + last 4, whatever its grouping. In
+  receipt text, every run of 13+ digits (adjacent, or separated by exactly one space,
+  dash, dot, tab or non-breaking space; no upper length limit) is masked except its
+  first 6 and last 4 digits — it previously caught only 16 contiguous digits. Dates,
+  times, amounts and shorter numbers are untouched. The raw DP block is masked at
   parse time (every sub-tag value of each line), so `TotalsResult.ReceiptText`, `ReferencingResult.ReceiptText` and
   `NapsTlv.Parse` never carry a full number. Masking keeps the text length, so the
   rest of each receipt line and the DP structure are unchanged. The full number is

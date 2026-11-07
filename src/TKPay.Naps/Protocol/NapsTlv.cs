@@ -34,15 +34,16 @@ public static class NapsTlv
         TlvProtocol.DescribeResponse(responseCode);
 
     /// <summary>
-    /// Mask a card number: first 6 + last 4 digits kept, middle replaced with '*'.
-    /// Example: <c>5167940123453315</c> → <c>516794******3315</c>.
+    /// Mask a card number: first 6 + last 4 digits kept, one '*' per hidden digit,
+    /// grouping removed. Example: <c>5167 9400 0012 3315</c> → <c>516794******3315</c>.
     /// </summary>
     public static string MaskPan(string pan) =>
-        TlvProtocol.MaskCardNumber(pan);
+        TlvProtocol.MaskPan(pan);
 
     /// <summary>
-    /// Mask every card number found in free text (e.g. receipt lines): 13-19 digits,
-    /// optionally separated by whitespace, dashes or dots; first 6 + last 4 digits kept.
+    /// Mask every card number found in free text (e.g. receipt lines):
+    /// 13 or more digits, adjacent or separated by exactly one space, dash, dot, tab or
+    /// non-breaking space; first 6 + last 4 digits kept, separators and length unchanged.
     /// </summary>
     public static string MaskPansInText(string text) =>
         TlvProtocol.MaskCardNumbersInText(text);
