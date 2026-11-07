@@ -378,7 +378,7 @@ foreach (var line in copy.CustomerReceipt?.Lines ?? Array.Empty<ReceiptLine>())
 Card numbers are masked (first 6 + last 4 digits, e.g. `516794******3315`) the moment
 the terminal's reply is parsed, before anything else sees it: the card number field
 (NCAR, tag 007) and any card number in the receipt text (13 to 19 digits, with or
-without spaces or dashes — the rest of the line is kept as is). The full number is
+without spaces, dashes or dots — the rest of the line is kept as is). The full number is
 never exposed in any result, receipt, raw field or error message, and never logged;
 the SDK itself writes no logs. The same helpers are public:
 

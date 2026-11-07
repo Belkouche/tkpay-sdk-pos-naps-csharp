@@ -42,7 +42,7 @@ public static class NapsTlv
 
     /// <summary>
     /// Mask every card number found in free text (e.g. receipt lines): 13-19 digits,
-    /// optionally separated by spaces or dashes; first 6 + last 4 digits kept.
+    /// optionally separated by whitespace, dashes or dots; first 6 + last 4 digits kept.
     /// </summary>
     public static string MaskPansInText(string text) =>
         TlvProtocol.MaskCardNumbersInText(text);

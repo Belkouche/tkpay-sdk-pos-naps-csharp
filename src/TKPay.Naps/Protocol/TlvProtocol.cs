@@ -11,9 +11,9 @@ namespace TKPay.Naps.Protocol;
 /// </summary>
 internal static class TlvProtocol
 {
-    // A card number in free text: 13-19 digits, optionally separated by single spaces or
-    // dashes, not part of a longer digit run.
-    private static readonly Regex _panPattern = new(@"(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)", RegexOptions.Compiled);
+    // A card number in free text: 13-19 digits, optionally separated by a single
+    // whitespace, dash or dot, not part of a longer digit run.
+    private static readonly Regex _panPattern = new(@"(?<!\d)\d(?:[\s.\-]?\d){12,18}(?!\d)", RegexOptions.Compiled);
 
     // -------------------------------------------------------------------------
     // Response codes (§6)
@@ -395,15 +395,17 @@ internal static class TlvProtocol
 
     /// <summary>
     /// Mask every card number found in free text (e.g. receipt lines): 13-19 digits,
-    /// optionally separated by spaces or dashes. The rest of the text is unchanged.
+    /// optionally separated by whitespace, dashes or dots. The rest of the text is unchanged.
     /// </summary>
     internal static string MaskCardNumbersInText(string text) =>
         _panPattern.Replace(text, m => MaskCardNumber(m.Value));
 
     /// <summary>
-    /// Mask card numbers in the text (sub-tag 033) of every line of a raw DP block,
-    /// leaving the block structure intact (masking keeps lengths, so TLV lengths stay
-    /// valid). Anything after a malformed point is masked as plain text.
+    /// Mask card numbers in every sub-tag value of a raw DP block (line text 033, and
+    /// any other or unknown sub-tag), leaving the block structure intact: masking keeps
+    /// lengths, so TLV lengths stay valid. The headers are not scanned — they are digits
+    /// and would merge with an adjacent number. Anything after a malformed point is
+    /// masked as plain text.
     /// </summary>
     private static string MaskCardNumbersInDp(string dp)
     {
@@ -416,10 +418,8 @@ internal static class TlvProtocol
                 || index + 6 + length > dp.Length)
                 break;
 
-            var tag = dp.Substring(index, 3);
-            var value = dp.Substring(index + 6, length);
             sb.Append(dp, index, 6)
-              .Append(tag == TlvTags.ReceiptContent ? MaskCardNumbersInText(value) : value);
+              .Append(MaskCardNumbersInText(dp.Substring(index + 6, length)));
             index += 6 + length;
         }
         if (index < dp.Length)

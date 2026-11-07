@@ -49,7 +49,7 @@ public class PanMaskingTests
     private static void AssertNoFullNumber(string? text)
     {
         if (text is null) return;
-        var digitsOnly = Regex.Replace(text, @"[ \-]", "");
+        var digitsOnly = Regex.Replace(text, @"[\s.\-]", "");
         foreach (var full in FullNumbers)
             Assert.DoesNotContain(full, digitsOnly);
     }
@@ -59,6 +59,8 @@ public class PanMaskingTests
     [InlineData("6011000990139424123", "601100*********4123")]         // 19 digits
     [InlineData("5167 9400 0012 3315", "5167 94** **** 3315")]
     [InlineData("5167-9400-0012-3315", "5167-94**-****-3315")]
+    [InlineData("5167.9400.0012.3315", "5167.94**.****.3315")]
+    [InlineData("5167\t9400\u00A00012 3315", "5167\t94**\u00A0**** 3315")]
     [InlineData("516794******3315", "516794******3315")]               // already masked
     public void MaskCardNumber_KeepsFirst6Last4AndLength(string input, string expected)
     {
@@ -87,6 +89,19 @@ public class PanMaskingTests
         foreach (var value in fields.Values) AssertNoFullNumber(value);
         Assert.Equal(Dp.Length, fields["010"].Length);   // masking keeps TLV lengths valid
         Assert.Equal(ExpectedLines, ReceiptParser.Parse(fields["010"], ReceiptType.Customer).Lines.Select(l => l.Text));
+    }
+
+    [Fact]
+    public void RawDp_UnknownSubTagWithCardNumber_IsMasked_StructureKept()
+    {
+        var dp = Line("01", "TKpay") + F("099", Pan16) + "*" + Line("02", "Copie Client");
+
+        var masked = NapsTlv.Parse(F("001", "102") + F("010", dp))["010"];
+
+        AssertNoFullNumber(masked);
+        Assert.Equal(dp.Length, masked.Length);
+        Assert.Equal(new[] { "TKpay", "Copie Client" },
+            ReceiptParser.Parse(masked, ReceiptType.Customer).Lines.Select(l => l.Text));
     }
 
     [Fact]
