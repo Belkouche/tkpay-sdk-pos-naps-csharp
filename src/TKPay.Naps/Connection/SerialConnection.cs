@@ -7,9 +7,9 @@ namespace TKPay.Naps.Connection;
 /// <summary>
 /// USB serial connection to an Ingenico Lane/3000 (CDC-ACM).
 ///
-/// Speaks the same NAPS ASCII TLV protocol as the TCP transport: the raw TLV
-/// request is written without a terminator, and the response is read until the
-/// resolved end-of-message terminator ('!' v2, '?' v1) or 1 second of silence.
+/// Speaks the same NAPS ASCII TLV protocol as the TCP transport. Each request ends
+/// with the resolved terminator ('!' v2, '?' v1), and the response is read until a
+/// terminator or 1 second of silence.
 /// </summary>
 internal sealed class SerialConnection : ITerminalConnection
 {
@@ -96,8 +96,13 @@ internal sealed class SerialConnection : ITerminalConnection
             var wait = RemainingWait(_openedAtUtc, _lastRxUtc, DateTime.UtcNow);
             if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
 
-            // --- Send raw TLV (no terminator), same framing as TCP ---
-            var bytes = Encoding.UTF8.GetBytes(tlvMessage);
+            // --- Send TLV + terminator. The Lane3600 dropped an unterminated TM 003 sent while
+            // it was still finishing a sale (no reply, void timed out); terminated frames, as
+            // the Node SDK sends, are taken in that state too. ---
+            var frame = tlvMessage.EndsWith(_config.Terminator.ToString())
+                ? tlvMessage
+                : tlvMessage + _config.Terminator;
+            var bytes = Encoding.UTF8.GetBytes(frame);
             _port.DiscardInBuffer();
 #if NET5_0_OR_GREATER
             await _port.BaseStream.WriteAsync(bytes, ct);
