@@ -28,8 +28,17 @@ The SDK has two transports: **TCP** (the terminal's NAPS Pay app listens on port
 **Lane 3600 over USB:** the terminal holds back its answers until about 30 s after the
 port opens, so the first request after opening waits until the port has been open 32 s.
 A payment sent earlier would get its approval too late to confirm ("attente validation
-caisse", then timeout). Open the connection once when the app starts and keep it open
-between transactions, so only the first request waits.
+caisse", then timeout). Over USB the client keeps the port open between operations, so
+use one `NapsPayClient` for the life of the app and dispose it on exit.
+
+**Run a network test when the point-of-sale app starts.** It takes that wait while no
+customer is waiting, checks the terminal and the bank host, and leaves the port open, so
+the first sale goes straight to the card prompt:
+
+```csharp
+await using var client = new NapsPayClient(NapsConfig.Serial());
+var net = await client.NetworkTestAsync(); // at app start: ~30 s on a Lane 3600 over USB
+```
 
 ```csharp
 // Sunmi over Wi-Fi (TCP 4444). Terminal and register must be on the same network.
@@ -224,8 +233,9 @@ can call `CancelAsync` again: if the first void did go through, the terminal ref
 the second with "already cancelled" (482 in the spec; 992 has been seen on a live
 v5.4.4 terminal), and if it didn't, the retry performs it.
 
-The `sequence` you pass is sent in NSA (tag 005) in TM 003 and in NS (tag 004) in
-TM 004. The amount the terminal returns in TM 103 is echoed in TM 004 — the v5.4.4
+The `sequence` you pass is the payment's sequence, sent in NSA (tag 005) in TM 003.
+The void gets a new sequence of its own in NS (tag 004), repeated in TM 004 as the spec
+requires; the TM 004 also echoes the date, time and currency returned in TM 103. The amount the terminal returns in TM 103 is echoed in TM 004 — the v5.4.4
 terminal refuses TM 004 without it (CR 909). If the terminal answers TM 003 directly
 with TM 104, the SDK classifies that TM 104 the same way without sending TM 004.
 
@@ -233,7 +243,7 @@ with TM 104, the SDK classifies that TM 104 the same way without sending TM 004.
 
 ## Other operations
 
-All of these open a connection, send one request and read one reply. `registerId`
+All of these send one request and read one reply (over TCP each opens its own connection). `registerId`
 and `cashierId` default to `"01"` / `"00001"`.
 
 **Network test (TM 009)** — checks the register → terminal → bank host chain:

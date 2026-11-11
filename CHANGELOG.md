@@ -12,6 +12,18 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
   showed "attente validation caisse", timed out, and the authorised payment was not
   recorded. The first frame now waits until the port has been open 32 s. Keep the
   connection open between transactions so the wait happens once.
+- **USB serial: one port for the life of the client.** `NapsPayClient` now keeps the
+  serial port open between operations instead of reopening it for each one, which
+  would have cost the Lane3600's ~30 s wait every time. `NapsPayClient` is now
+  `IAsyncDisposable`; dispose it to close the port. TCP still opens one connection per
+  operation. Run `NetworkTestAsync()` when the point-of-sale app starts so the first
+  sale does not wait.
+- **Void frames follow spec v2 §4.3/§4.4.** TM 003 now carries the mandatory NS (a new
+  sequence for the void) and sends the payment's `sequence` in NSA. Without NS the
+  Lane3600 refused it with CR 307 (format error). TM 004 repeats the TM 003 NS and
+  echoes MT, DE, DATR and HETR from TM 103, in the spec order: TM, NCAI, NS, STAN, MT,
+  DE, DATR, HETR, DA, HE. The frames match the Node SDK frames that completed a void
+  on a live Lane3600 (TM 104 CR 000).
 - **Void receipt.** When TM 103 carries no receipt, as on the Lane3600, `CancelAsync`
   returns the TM 104 receipt (the only void receipt, "SIGNATURE CLIENT") as
   `MerchantReceipt` instead of `CustomerReceipt`. Terminals that send a receipt with

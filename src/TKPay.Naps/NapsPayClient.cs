@@ -30,11 +30,12 @@ namespace TKPay.Naps;
 /// </code>
 /// </example>
 /// </summary>
-public sealed class NapsPayClient
+public sealed class NapsPayClient : IAsyncDisposable
 {
     private readonly NapsConfig _config;
     private int _sequence = 1;
     private readonly object _seqLock = new();
+    private SerialConnection? _serial;
 
     public NapsPayClient(NapsConfig config)
     {
@@ -49,7 +50,7 @@ public sealed class NapsPayClient
     /// Process a card payment.
     ///
     /// Executes Phase 1 (TM 001) and Phase 2 (TM 002) on the same TCP connection.
-    /// The connection is opened and closed automatically.
+    /// A TCP connection is opened and closed automatically; a USB serial port stays open between operations.
     /// </summary>
     /// <param name="request">Payment details.</param>
     /// <param name="ct">Optional cancellation token.</param>
@@ -63,8 +64,7 @@ public sealed class NapsPayClient
     {
         if (request is null) throw new ArgumentNullException(nameof(request));
 
-        await using var conn = TerminalConnection.Create(_config);
-        await conn.ConnectAsync(ct);
+        await using var conn = await OpenAsync(ct);
 
         // --- Phase 1: Payment Request ---
         var phase1Fields = await SendPaymentRequestAsync(conn, request, ct);
@@ -110,8 +110,7 @@ public sealed class NapsPayClient
         var ncai = registerId + cashierId;
         var tlv = TlvProtocol.BuildSettlementRequest(ncai);
 
-        await using var conn = TerminalConnection.Create(_config);
-        await conn.ConnectAsync(ct);
+        await using var conn = await OpenAsync(ct);
 
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
         var fields = TlvProtocol.Parse(response);
@@ -144,7 +143,8 @@ public sealed class NapsPayClient
     /// <param name="stan">STAN of the transaction to cancel.</param>
     /// <param name="registerId">Register ID (2 digits).</param>
     /// <param name="cashierId">Cashier ID (5 digits).</param>
-    /// <param name="sequence">Sequence number (NSA in TM 003, NS in TM 004).</param>
+    /// <param name="sequence">Sequence number of the payment being voided, sent as NSA (005) in
+    /// TM 003. The void itself gets a new NS, repeated in TM 004 (spec v2 §4.3/§4.4).</param>
     /// <param name="amountCentimes">Original amount in centimes (required for v5.4.4+).</param>
     /// <param name="ct">Optional cancellation token.</param>
     public async Task<CancellationResult> CancelAsync(
@@ -156,10 +156,10 @@ public sealed class NapsPayClient
         CancellationToken ct = default)
     {
         var ncai = registerId + cashierId;
-        var tlv = TlvProtocol.BuildCancellationRequest(stan, ncai, sequence, amountCentimes);
+        var voidSequence = GenerateSequence();
+        var tlv = TlvProtocol.BuildCancellationRequest(stan, ncai, voidSequence, amountCentimes, sequence);
 
-        await using var conn = TerminalConnection.Create(_config);
-        await conn.ConnectAsync(ct);
+        await using var conn = await OpenAsync(ct);
 
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
         var fields = TlvProtocol.Parse(response);
@@ -181,8 +181,11 @@ public sealed class NapsPayClient
 
         // --- Phase 2: Cancellation Confirmation (TM 004 → 104) executes the reversal ---
         var confirmTlv = TlvProtocol.BuildCancellationConfirmationRequest(
-            originalStan, ncai, sequence,
-            fields.GetValueOrDefault(TlvTags.Mt) ?? amountCentimes?.ToString());
+            originalStan, ncai, voidSequence,
+            fields.GetValueOrDefault(TlvTags.Mt) ?? amountCentimes?.ToString(),
+            fields.GetValueOrDefault(TlvTags.DE),
+            fields.GetValueOrDefault(TlvTags.Datr),
+            fields.GetValueOrDefault(TlvTags.Hetr));
         Dictionary<string, string> confirmation;
         try
         {
@@ -236,8 +239,7 @@ public sealed class NapsPayClient
     {
         try
         {
-            await using var conn = TerminalConnection.Create(_config);
-            await conn.ConnectAsync(ct);
+            await using var conn = await OpenAsync(ct);
             return conn.IsConnected;
         }
         catch
@@ -387,19 +389,60 @@ public sealed class NapsPayClient
     /// <summary>List all available serial ports.</summary>
     public static string[] ListPorts() => PortDiscovery.ListPorts();
 
+    /// <summary>Close the USB serial port kept open between operations (no-op for TCP).</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_serial is not null) await _serial.DisposeAsync();
+        _serial = null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Connections
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Open the link for one operation. TCP opens a new connection each time. USB serial keeps
+    /// one port open for the life of the client: the Ingenico Lane3600 answers late for ~30 s
+    /// after the port opens, so reopening it for every operation would delay each one.
+    /// </summary>
+    private async Task<ITerminalConnection> OpenAsync(CancellationToken ct)
+    {
+        if (_config.Transport != TransportType.UsbSerial)
+        {
+            var conn = TerminalConnection.Create(_config);
+            await conn.ConnectAsync(ct);
+            return conn;
+        }
+        _serial ??= new SerialConnection(_config);
+        if (!_serial.IsConnected) await _serial.ConnectAsync(ct);
+        return new KeptOpenConnection(_serial);
+    }
+
+    /// <summary>Lends the shared serial connection to one operation; disposing it keeps the port open.</summary>
+    private sealed class KeptOpenConnection : ITerminalConnection
+    {
+        private readonly ITerminalConnection _inner;
+        internal KeptOpenConnection(ITerminalConnection inner) => _inner = inner;
+        public bool IsConnected => _inner.IsConnected;
+        public Task ConnectAsync(CancellationToken ct = default) => _inner.ConnectAsync(ct);
+        public Task DisconnectAsync() => _inner.DisconnectAsync();
+        public Task<string> SendAndReceiveAsync(string tlvMessage, TimeSpan timeout, CancellationToken ct = default) =>
+            _inner.SendAndReceiveAsync(tlvMessage, timeout, ct);
+        public ValueTask DisposeAsync() => default;
+    }
+
     // -------------------------------------------------------------------------
     // Management-op transport helper
     // -------------------------------------------------------------------------
 
     /// <summary>
     /// Open a connection, send a single management TLV frame and parse the response.
-    /// The connection is opened and closed automatically.
+    /// A TCP connection is opened and closed automatically; a USB serial port stays open between operations.
     /// </summary>
     private async Task<Dictionary<string, string>> SendManagementAsync(
         string tlv, CancellationToken ct)
     {
-        await using var conn = TerminalConnection.Create(_config);
-        await conn.ConnectAsync(ct);
+        await using var conn = await OpenAsync(ct);
         var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
         return TlvProtocol.Parse(response);
     }

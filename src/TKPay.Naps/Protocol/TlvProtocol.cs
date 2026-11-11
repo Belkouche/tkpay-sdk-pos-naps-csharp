@@ -206,23 +206,33 @@ internal static class TlvProtocol
     }
 
     /// <summary>
-    /// Build cancellation request TLV (TM=003).
+    /// Build cancellation request TLV (TM=003), spec v2 §4.3.
     ///
-    /// NapsPay v5.4.4+ requires the original amount (TAG 002) in the frame.
-    /// Pass <paramref name="amountCentimes"/> when targeting v5.4.4+.
+    /// <para>
+    /// <paramref name="sequence"/> is the void's own NS (004), a new number independent of the
+    /// payment; TM 004 must repeat it. <paramref name="originalSequence"/>, the payment's
+    /// sequence, goes in NSA (005). NapsPay v5.4.4+ requires the original amount (TAG 002).
+    /// Field order matches the frame the Ingenico Lane3600 accepted: TM, NCAI, NS, DA, HE,
+    /// DATR, HETR, STAN, [MT], [NSA]. The previous frame (TM, MT, STAN, NCAI, NSA, DA, HE),
+    /// with no NS, was refused by the Lane3600 with CR 307 (format error).
+    /// </para>
     /// </summary>
     internal static string BuildCancellationRequest(
-        string stan, string ncai, string sequence, long? amountCentimes = null)
+        string stan, string ncai, string sequence, long? amountCentimes = null, string? originalSequence = null)
     {
         var (date, time) = CurrentDateTime();
-        var msg = BuildField(TlvTags.Tm, TlvTags.MsgCancellationRequest);
+        var msg = BuildField(TlvTags.Tm,   TlvTags.MsgCancellationRequest)
+                + BuildField(TlvTags.Ncai, ncai)
+                + BuildField(TlvTags.Ns,   sequence)
+                + BuildField(TlvTags.Da,   date)
+                + BuildField(TlvTags.He,   time)
+                + BuildField(TlvTags.Datr, date)
+                + BuildField(TlvTags.Hetr, time)
+                + BuildField(TlvTags.Stan, stan);
         if (amountCentimes.HasValue)
             msg += BuildField(TlvTags.Mt, amountCentimes.Value.ToString());
-        msg += BuildField(TlvTags.Stan, stan)
-             + BuildField(TlvTags.Ncai, ncai)
-             + BuildField(TlvTags.Nsa,  sequence)
-             + BuildField(TlvTags.Da,   date)
-             + BuildField(TlvTags.He,   time);
+        if (!string.IsNullOrEmpty(originalSequence))
+            msg += BuildField(TlvTags.Nsa, originalSequence!);
         return msg;
     }
 
@@ -231,24 +241,32 @@ internal static class TlvProtocol
     /// Sent on the same connection after TM 103 CR=000; it executes the actual reversal.
     ///
     /// <para>
-    /// The sequence goes in NS (004) — same value as the TM 003 it confirms — not NSA.
-    /// <paramref name="amount"/> is the MT (002) echoed from TM 103; the v5.4.4 terminal
-    /// refuses TM 004 without it (CR 909).
-    /// Field order (live-verified): TM, [MT], STAN, NCAI, NS, DA, HE.
+    /// Spec fields and order: TM, NCAI, NS (same as TM 003), STAN, MT, DE, DATR, HETR, DA, HE.
+    /// <paramref name="amount"/>, <paramref name="currency"/>, <paramref name="datr"/> and
+    /// <paramref name="hetr"/> are echoed from TM 103; the terminal refuses TM 004 without
+    /// the amount (CR 909). No NSA: the sequence goes in NS.
     /// </para>
     /// </summary>
     internal static string BuildCancellationConfirmationRequest(
-        string stan, string ncai, string sequence, string? amount = null)
+        string stan, string ncai, string sequence, string? amount = null,
+        string? currency = null, string? datr = null, string? hetr = null)
     {
         var (date, time) = CurrentDateTime();
-        var msg = BuildField(TlvTags.Tm, TlvTags.MsgCancellationConfirmationRequest);
+        var msg = BuildField(TlvTags.Tm,   TlvTags.MsgCancellationConfirmationRequest)
+                + BuildField(TlvTags.Ncai, ncai)
+                + BuildField(TlvTags.Ns,   sequence)
+                + BuildField(TlvTags.Stan, stan);
         if (!string.IsNullOrEmpty(amount))
+        {
             msg += BuildField(TlvTags.Mt, amount!);
-        msg += BuildField(TlvTags.Stan, stan)
-             + BuildField(TlvTags.Ncai, ncai)
-             + BuildField(TlvTags.Ns,   sequence)
-             + BuildField(TlvTags.Da,   date)
-             + BuildField(TlvTags.He,   time);
+            msg += BuildField(TlvTags.DE, string.IsNullOrEmpty(currency) ? "504" : currency!);
+        }
+        if (!string.IsNullOrEmpty(datr))
+            msg += BuildField(TlvTags.Datr, datr!);
+        if (!string.IsNullOrEmpty(hetr))
+            msg += BuildField(TlvTags.Hetr, hetr!);
+        msg += BuildField(TlvTags.Da, date)
+             + BuildField(TlvTags.He, time);
         return msg;
     }
 
