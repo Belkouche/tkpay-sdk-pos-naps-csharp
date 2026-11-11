@@ -55,7 +55,7 @@ public class EmulatorReceiptIntegrationTests
             new PaymentRequest(amount: 10.00m, registerId: "01", cashierId: "00001"));
 
         Assert.True(payment.IsApproved());
-        AssertGolden(payment.MerchantReceipt, "DEBIT", "Copie Commercant");
+        AssertGolden(payment.MerchantReceipt, "DEBIT", "Copie Commerçant");
         AssertGolden(payment.CustomerReceipt, "DEBIT", "Copie Client");
         Assert.Contains($"STAN: {payment.Stan}", payment.CustomerReceipt!.ToPlainText());
 
@@ -63,8 +63,9 @@ public class EmulatorReceiptIntegrationTests
             payment.Stan!, "01", "00001", payment.Sequence ?? "000001", amountCentimes: 1000);
 
         Assert.Equal(CancellationStatus.Completed, voidResult.Status);
-        AssertGolden(voidResult.MerchantReceipt, "ANNULATION", "Copie Commercant");
-        AssertGolden(voidResult.CustomerReceipt, "ANNULATION", "Copie Client");
+        // Live terminals: TM 103 has no receipt; the TM 104 receipt is the merchant copy.
+        AssertGolden(voidResult.MerchantReceipt, "ANNULATION", "Copie Commerçant");
+        Assert.Null(voidResult.CustomerReceipt);
     }
 
     [EmulatorFact("approve")]
