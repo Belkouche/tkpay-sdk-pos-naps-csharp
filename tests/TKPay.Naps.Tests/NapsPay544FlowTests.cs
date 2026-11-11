@@ -120,6 +120,20 @@ public class NapsPay544FlowTests
         Assert.Equal(expected, TlvProtocol.DescribeResponse(code));
     }
 
+    [Fact]
+    public async Task NetworkTestAsync_OverTcp_SendsNothing_ReturnsUnsupported()
+    {
+        // Sunmi NapsPay answers TM 009 with TM 101 / CR 902; a test frame crashed the app.
+        var (port, requests) = StartTerminal(_ => F("001", "109") + F("013", "000"));
+
+        var result = await Client(port).NetworkTestAsync();
+
+        Assert.False(result.Success);
+        Assert.Equal("UNSUPPORTED", result.ResponseCode);
+        using (var c = new System.Net.Sockets.TcpClient()) c.Connect("127.0.0.1", port); // release the fake terminal
+        Assert.Empty(await requests);
+    }
+
     // -------------------------------------------------------------------------
     // Two-phase void
     // -------------------------------------------------------------------------

@@ -31,7 +31,7 @@ A payment sent earlier would get its approval too late to confirm ("attente vali
 caisse", then timeout). Over USB the client keeps the port open between operations, so
 use one `NapsPayClient` for the life of the app and dispose it on exit.
 
-**Run a network test when the point-of-sale app starts.** It takes that wait while no
+**Run a network test when the point-of-sale app starts (USB only).** It takes that wait while no
 customer is waiting, checks the terminal and the bank host, and leaves the port open, so
 the first sale goes straight to the card prompt:
 
@@ -246,7 +246,10 @@ with TM 104, the SDK classifies that TM 104 the same way without sending TM 004.
 All of these send one request and read one reply (over TCP each opens its own connection). `registerId`
 and `cashierId` default to `"01"` / `"00001"`.
 
-**Network test (TM 009)** — checks the register → terminal → bank host chain:
+**Network test (TM 009)** — checks the register → terminal → bank host chain. USB serial
+only: over TCP nothing is sent and `ResponseCode` is `"UNSUPPORTED"`, because the NapsPay
+app on Sunmi terminals does not implement TM 009 (it answers 902) and a test frame crashed
+the app on a Sunmi P2. Use `TestConnectionAsync()` to check a TCP terminal is reachable.
 
 ```csharp
 var net = await client.NetworkTestAsync();

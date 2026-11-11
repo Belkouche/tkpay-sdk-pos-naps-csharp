@@ -250,6 +250,13 @@ public sealed class NapsPayClient : IAsyncDisposable
 
     /// <summary>
     /// Network test / ping (TM=009). Verifies the terminal can reach the NAPS host.
+    ///
+    /// <para>
+    /// USB serial only. Over TCP nothing is sent and the result has <c>ResponseCode</c>
+    /// <c>"UNSUPPORTED"</c>: the NapsPay app on Sunmi terminals does not implement TM 009 (it
+    /// answers TM 101 with CR 902), and a test frame crashed the app on a Sunmi P2. Use
+    /// <see cref="TestConnectionAsync"/> to check a TCP terminal is reachable.
+    /// </para>
     /// </summary>
     /// <param name="registerId">Register ID (2 digits, default "01").</param>
     /// <param name="cashierId">Cashier ID (5 digits, default "00001").</param>
@@ -259,6 +266,14 @@ public sealed class NapsPayClient : IAsyncDisposable
         string cashierId = "00001",
         CancellationToken ct = default)
     {
+        if (_config.Transport != TransportType.UsbSerial)
+            return new NetworkTestResult
+            {
+                Success = false,
+                ResponseCode = "UNSUPPORTED",
+                Message = "Network test not supported over TCP (the terminal's payment app does not implement TM 009)"
+            };
+
         var fields = await SendManagementAsync(
             TlvProtocol.BuildNetworkTestRequest(registerId + cashierId, GenerateSequence()), ct);
         var rc = fields.GetValueOrDefault(TlvTags.CR, "");

@@ -29,6 +29,10 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
 - **USB serial: port closed after a failed exchange.** After a timeout or error the
   kept-open port is closed, so a reply that arrives late is never read as the answer
   to the next request. The next operation reopens it (and waits again).
+- **Network test is USB only.** Over TCP, `NetworkTestAsync` sends nothing and returns
+  `ResponseCode = "UNSUPPORTED"`. The NapsPay app on a Sunmi P2 answers TM 009 with
+  TM 101 / CR 902 (it only handles payments and voids over the ECR link), and a test
+  frame crashed the app.
 - **Void frames follow spec v2 §4.3/§4.4.** TM 003 now carries the mandatory NS (a new
   sequence for the void) and sends the payment's `sequence` in NSA. Without NS the
   Lane3600 refused it with CR 307 (format error). TM 004 repeats the TM 003 NS and
