@@ -18,6 +18,9 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
   `IAsyncDisposable`; dispose it to close the port. TCP still opens one connection per
   operation. Run `NetworkTestAsync()` when the point-of-sale app starts so the first
   sale does not wait.
+- **USB serial: port closed after a failed exchange.** After a timeout or error the
+  kept-open port is closed, so a reply that arrives late is never read as the answer
+  to the next request. The next operation reopens it (and waits again).
 - **Void frames follow spec v2 §4.3/§4.4.** TM 003 now carries the mandatory NS (a new
   sequence for the void) and sends the payment's `sequence` in NSA. Without NS the
   Lane3600 refused it with CR 307 (format error). TM 004 repeats the TM 003 NS and

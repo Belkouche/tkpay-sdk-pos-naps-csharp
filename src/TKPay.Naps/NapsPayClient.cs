@@ -426,8 +426,20 @@ public sealed class NapsPayClient : IAsyncDisposable
         public bool IsConnected => _inner.IsConnected;
         public Task ConnectAsync(CancellationToken ct = default) => _inner.ConnectAsync(ct);
         public Task DisconnectAsync() => _inner.DisconnectAsync();
-        public Task<string> SendAndReceiveAsync(string tlvMessage, TimeSpan timeout, CancellationToken ct = default) =>
-            _inner.SendAndReceiveAsync(tlvMessage, timeout, ct);
+        public async Task<string> SendAndReceiveAsync(string tlvMessage, TimeSpan timeout, CancellationToken ct = default)
+        {
+            try
+            {
+                return await _inner.SendAndReceiveAsync(tlvMessage, timeout, ct);
+            }
+            catch
+            {
+                // A reply that comes after a timeout or error must not be read as the answer to
+                // the next request: close the port so the next operation opens a fresh one.
+                await _inner.DisconnectAsync();
+                throw;
+            }
+        }
         public ValueTask DisposeAsync() => default;
     }
 
