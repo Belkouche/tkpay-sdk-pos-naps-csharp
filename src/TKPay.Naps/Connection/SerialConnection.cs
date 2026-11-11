@@ -178,7 +178,7 @@ internal sealed class SerialConnection : ITerminalConnection
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf.Take(count));
-        var done = TlvProtocol.IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
+        var done = TlvProtocol.IsCompleteResponse(rawBytes);
 
         // Drain remaining chunks with a 1-second inter-chunk silence fallback.
         while (!done)
@@ -195,7 +195,7 @@ internal sealed class SerialConnection : ITerminalConnection
 #endif
                 if (count == 0) break;
                 rawBytes.AddRange(buf.Take(count));
-                done = TlvProtocol.IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
+                done = TlvProtocol.IsCompleteResponse(rawBytes);
             }
             catch (OperationCanceledException) when (!userCt.IsCancellationRequested)
             {

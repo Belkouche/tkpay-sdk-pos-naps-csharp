@@ -279,4 +279,15 @@ public class TlvProtocolTests
     [InlineData("garbage", false)]
     public void IsCompleteMessage_OnlyAtTerminatorOnFieldBoundary(string buf, bool expected) =>
         Assert.Equal(expected, TlvProtocol.IsCompleteMessage(buf));
+
+    [Fact]
+    public void IsCompleteResponse_WalksOnlyWhenDataEndsWithTerminator_AndCapsSize()
+    {
+        var bytes = (string str) => System.Text.Encoding.UTF8.GetBytes(str).ToList();
+        Assert.True(TlvProtocol.IsCompleteResponse(bytes("001003109013003000!")));
+        Assert.False(TlvProtocol.IsCompleteResponse(bytes("001003109013003000!0")));   // closes on silence
+        Assert.False(TlvProtocol.IsCompleteResponse(bytes("001003108010012LINE1?LINE2?")));
+        var huge = Enumerable.Repeat((byte)'0', TlvProtocol.MaxResponseBytes + 1).ToList();
+        Assert.Throws<TKPay.Naps.Models.NapsException>(() => TlvProtocol.IsCompleteResponse(huge));
+    }
 }

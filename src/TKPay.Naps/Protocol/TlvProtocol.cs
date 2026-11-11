@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using TKPay.Naps.Models;
 
 namespace TKPay.Naps.Protocol;
 
@@ -203,6 +204,23 @@ internal static class TlvProtocol
              + BuildField(TlvTags.He, time);
 
         return msg;
+    }
+
+    /// <summary>Largest reply accepted (replies seen are ~2 KB).</summary>
+    internal const int MaxResponseBytes = 64 * 1024;
+
+    /// <summary>
+    /// Reader check after each chunk: throws past <see cref="MaxResponseBytes"/>, and walks the
+    /// fields (<see cref="IsCompleteMessage"/>) only when the data ends with '!' or '?', so the
+    /// buffer is not re-decoded after every chunk. A reply ending otherwise closes on silence.
+    /// </summary>
+    internal static bool IsCompleteResponse(List<byte> rawBytes)
+    {
+        if (rawBytes.Count > MaxResponseBytes)
+            throw NapsException.InvalidResponse($"Response larger than {MaxResponseBytes} bytes.");
+        var last = rawBytes[rawBytes.Count - 1];
+        return (last == (byte)'!' || last == (byte)'?')
+            && IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
     }
 
     /// <summary>
