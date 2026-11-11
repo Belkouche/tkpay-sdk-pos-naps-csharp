@@ -395,11 +395,14 @@ internal static class TlvProtocol
     /// is longer (a duplicate with both copies is ~2,150 chars), so a DP declared 999 long ends
     /// at its own '?' end marker, found by walking its sub-tags and '*' line separators.
     /// </summary>
+    // ASCII only: char.IsDigit accepts other scripts' digits, which int.Parse then rejects.
+    internal static bool IsAsciiDigit(char c) => c is >= '0' and <= '9';
+
     internal static int FieldEnd(string data, int pos)
     {
         if (pos + 6 > data.Length) return data.Length + 1;
         var header = data.Substring(pos, 6);
-        if (!header.All(char.IsDigit)) return -1;
+        if (!header.All(IsAsciiDigit)) return -1;
         var declaredEnd = pos + 6 + int.Parse(header.Substring(3));
         if (header != TlvTags.Dp + "999") return declaredEnd;
 
@@ -410,7 +413,7 @@ internal static class TlvProtocol
             if (data[i] == '?') return Math.Max(i + 1, declaredEnd);
             if (i + 6 > data.Length) return data.Length + 1; // rest of the receipt not received yet
             var sub = data.Substring(i, 6);
-            if (!sub.All(char.IsDigit)) return declaredEnd;
+            if (!sub.All(IsAsciiDigit)) return declaredEnd;
             i += 6 + int.Parse(sub.Substring(3));
         }
         return data.Length + 1;
@@ -514,8 +517,10 @@ internal static class TlvProtocol
         while (index < dp.Length)
         {
             if (dp[index] is '*' or '?') { sb.Append(dp[index++]); continue; }
-            if (index + 6 > dp.Length || !int.TryParse(dp.Substring(index + 3, 3), out var length)
-                || index + 6 + length > dp.Length)
+            if (index + 6 > dp.Length || !dp.Substring(index + 3, 3).All(IsAsciiDigit))
+                break;
+            var length = int.Parse(dp.Substring(index + 3, 3));
+            if (index + 6 + length > dp.Length)
                 break;
 
             sb.Append(dp, index, 6)

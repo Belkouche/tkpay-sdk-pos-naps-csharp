@@ -311,4 +311,23 @@ public class TlvProtocolTests
         Assert.False(TlvProtocol.IsCompleteMessage(LongFrame.Substring(0, LongFrame.Length - 1)));
         Assert.True(TlvProtocol.IsCompleteMessage(LongFrame));
     }
+
+    [Fact]
+    public void Parse_NonAsciiDigitsInHeader_StopsWithoutThrowing()
+    {
+        // Arabic-Indic digits pass char.IsDigit but not int.Parse.
+        var fields = TlvProtocol.Parse("001003109" + "013\u0660\u0660\u0663000!");
+        Assert.Equal("109", fields[TlvTags.Tm]);
+        Assert.False(fields.ContainsKey(TlvTags.CR));
+        Assert.False(TlvProtocol.IsCompleteMessage("013\u0660\u0660\u0663000"));
+    }
+
+    [Fact]
+    public void Parse_NegativeLengthInsideDp_DoesNotThrow()
+    {
+        var frame = "001003108" + TlvProtocol.BuildField(TlvTags.Dp, "033-01X?") + "013003000!";
+        var fields = TlvProtocol.Parse(frame);
+        Assert.Equal("000", fields[TlvTags.CR]);
+        ReceiptParser.Parse(fields[TlvTags.Dp], TKPay.Naps.Models.ReceiptType.Merchant); // must not throw
+    }
 }

@@ -48,7 +48,9 @@ internal static class ReceiptParser
             if (index + 6 > dpValue.Length) break;
 
             var tag = dpValue.Substring(index, 3);
-            if (!int.TryParse(dpValue.Substring(index + 3, 3), out var length)) break;
+            // ASCII digits only: TryParse accepts a sign ("-01") and the Substring below would throw.
+            if (!dpValue.Substring(index + 3, 3).All(TlvProtocol.IsAsciiDigit)) break;
+            var length = int.Parse(dpValue.Substring(index + 3, 3));
             if (index + 6 + length > dpValue.Length) break;
 
             var value = dpValue.Substring(index + 6, length);
