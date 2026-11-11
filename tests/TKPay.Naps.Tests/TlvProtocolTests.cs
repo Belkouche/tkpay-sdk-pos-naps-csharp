@@ -267,4 +267,16 @@ public class TlvProtocolTests
     {
         Assert.Equal(expected, TlvProtocol.IsApproved(code));
     }
+
+    [Theory]
+    [InlineData("001003109013003000!", true)]
+    [InlineData("001003109013003000", false)]
+    [InlineData("001003108010012LINE1?LINE2?", false)]          // '?' inside the DP value
+    [InlineData("001003108010012LINE1?LINE2?013003000!", true)]
+    [InlineData("001003108010014MERCI! A BIENT", false)]        // '!' inside the DP value
+    [InlineData("00100", false)]
+    [InlineData("garbage!", true)]                              // non-TLV: trailing terminator
+    [InlineData("garbage", false)]
+    public void IsCompleteMessage_OnlyAtTerminatorOnFieldBoundary(string buf, bool expected) =>
+        Assert.Equal(expected, TlvProtocol.IsCompleteMessage(buf));
 }

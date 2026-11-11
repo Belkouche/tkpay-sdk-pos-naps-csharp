@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Text;
 using TKPay.Naps.Models;
+using TKPay.Naps.Protocol;
 
 namespace TKPay.Naps.Connection;
 
@@ -149,7 +150,6 @@ internal sealed class NapsConnection : ITerminalConnection
     {
         // Accept either terminator on the wire so the reader tolerates a mismatch
         // between the configured version and what the terminal actually sends.
-        static bool IsTerminator(byte b) => b == (byte)'!' || b == (byte)'?';
 
         const int bufSize = 4096;
         var rawBytes = new List<byte>(bufSize);
@@ -165,7 +165,7 @@ internal sealed class NapsConnection : ITerminalConnection
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf.Take(count));
-        var done = IsTerminator(buf[count - 1]);
+        var done = TlvProtocol.IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
 
         // Drain remaining chunks with a 1-second inter-chunk gap
         while (!done)
@@ -182,7 +182,7 @@ internal sealed class NapsConnection : ITerminalConnection
 #endif
                 if (count == 0) break;
                 rawBytes.AddRange(buf.Take(count));
-                done = IsTerminator(buf[count - 1]);
+                done = TlvProtocol.IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {

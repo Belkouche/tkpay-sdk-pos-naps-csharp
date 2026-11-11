@@ -26,6 +26,11 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
   (TM 002, TM 004) wait 0.5 s. Requests also end with the protocol terminator ('!' v2,
   '?' v1), as in the Node SDK. Verified on the terminal: network test → 1 MAD payment →
   immediate void, all completed (sale 000256, void 000257).
+- **Reader (USB and TCP): end of reply on a field boundary.** A reply is complete when
+  walking its fields by length lands on a '!'/'?' terminator. It used to end whenever a read
+  happened to stop on one, and receipt lines inside DP end with '?', so an unlucky ~1 KB read
+  could cut a reply short. Non-TLV data (the Lane3600 writes 999 as the length of a longer
+  receipt) still ends on a trailing terminator.
 - **USB serial: port closed after a failed exchange.** After a timeout or error the
   kept-open port is closed, so a reply that arrives late is never read as the answer
   to the next request. The next operation reopens it (and waits again).

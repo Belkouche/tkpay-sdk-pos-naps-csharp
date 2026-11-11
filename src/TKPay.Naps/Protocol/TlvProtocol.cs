@@ -206,6 +206,28 @@ internal static class TlvProtocol
     }
 
     /// <summary>
+    /// True once <paramref name="buf"/> holds a complete message: walking the fields by their
+    /// length lands on a '!'/'?' terminator. A terminator inside a value (receipt lines end with
+    /// '?') is data, so a read that happens to stop right after one is not taken as the end.
+    /// If the data is not TLV (the Lane3600 writes 999 as the length of a longer receipt), a
+    /// trailing terminator is accepted as the end.
+    /// </summary>
+    internal static bool IsCompleteMessage(string buf)
+    {
+        var pos = 0;
+        while (pos < buf.Length)
+        {
+            if (buf[pos] == '!' || buf[pos] == '?') return true;
+            if (pos + 6 > buf.Length) return false;
+            var header = buf.Substring(pos, 6);
+            if (!header.All(char.IsDigit))
+                return buf[buf.Length - 1] == '!' || buf[buf.Length - 1] == '?';
+            pos += 6 + int.Parse(header.Substring(3));
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Build cancellation request TLV (TM=003), spec v2 §4.3.
     ///
     /// <para>

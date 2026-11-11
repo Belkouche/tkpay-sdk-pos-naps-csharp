@@ -1,6 +1,7 @@
 using System.IO.Ports;
 using System.Text;
 using TKPay.Naps.Models;
+using TKPay.Naps.Protocol;
 
 namespace TKPay.Naps.Connection;
 
@@ -162,7 +163,6 @@ internal sealed class SerialConnection : ITerminalConnection
     private static async Task<string> ReadResponseAsync(
         Stream stream, CancellationToken outerCt, CancellationToken userCt)
     {
-        static bool IsTerminator(byte b) => b == (byte)'!' || b == (byte)'?';
 
         const int bufSize = 4096;
         var rawBytes = new List<byte>(bufSize);
@@ -178,7 +178,7 @@ internal sealed class SerialConnection : ITerminalConnection
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf.Take(count));
-        var done = IsTerminator(buf[count - 1]);
+        var done = TlvProtocol.IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
 
         // Drain remaining chunks with a 1-second inter-chunk silence fallback.
         while (!done)
@@ -195,7 +195,7 @@ internal sealed class SerialConnection : ITerminalConnection
 #endif
                 if (count == 0) break;
                 rawBytes.AddRange(buf.Take(count));
-                done = IsTerminator(buf[count - 1]);
+                done = TlvProtocol.IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
             }
             catch (OperationCanceledException) when (!userCt.IsCancellationRequested)
             {
