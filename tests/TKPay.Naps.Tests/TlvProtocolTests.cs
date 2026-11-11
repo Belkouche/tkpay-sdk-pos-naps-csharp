@@ -290,4 +290,25 @@ public class TlvProtocolTests
         var huge = Enumerable.Repeat((byte)'0', TlvProtocol.MaxResponseBytes + 1).ToList();
         Assert.Throws<TKPay.Naps.Models.NapsException>(() => TlvProtocol.IsCompleteResponse(huge));
     }
+
+    // A receipt longer than 999 chars, as the Lane3600 sends it: DP declared 999 long.
+    private static readonly string LongDp = string.Concat(Enumerable.Range(0, 25).Select(n =>
+        $"*030002{n:D2}031001S032001G033040{new string('X', 40)}")) + "?";
+    private static readonly string LongFrame = "001003108" + "010999" + LongDp + "013003000" + "!";
+
+    [Fact]
+    public void Parse_DpDeclared999_ReadsWholeReceiptAndFollowingFields()
+    {
+        var fields = TlvProtocol.Parse(LongFrame);
+        Assert.Equal(LongDp, fields[TlvTags.Dp]);
+        Assert.Equal("000", fields[TlvTags.CR]);
+    }
+
+    [Fact]
+    public void IsCompleteMessage_DpDeclared999_WaitsForWholeReceipt()
+    {
+        Assert.False(TlvProtocol.IsCompleteMessage(LongFrame.Substring(0, 1200)));
+        Assert.False(TlvProtocol.IsCompleteMessage(LongFrame.Substring(0, LongFrame.Length - 1)));
+        Assert.True(TlvProtocol.IsCompleteMessage(LongFrame));
+    }
 }

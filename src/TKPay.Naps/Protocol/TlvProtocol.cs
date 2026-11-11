@@ -237,10 +237,10 @@ internal static class TlvProtocol
         {
             if (buf[pos] == '!' || buf[pos] == '?') return true;
             if (pos + 6 > buf.Length) return false;
-            var header = buf.Substring(pos, 6);
-            if (!header.All(char.IsDigit))
+            var end = FieldEnd(buf, pos);
+            if (end < 0)
                 return buf[buf.Length - 1] == '!' || buf[buf.Length - 1] == '?';
-            pos += 6 + int.Parse(header.Substring(3));
+            pos = end;
         }
         return false;
     }
@@ -389,6 +389,34 @@ internal static class TlvProtocol
     // -------------------------------------------------------------------------
 
     /// <summary>
+    /// End index (exclusive) of the field starting at <paramref name="pos"/>, -1 if its header
+    /// is not TLV. The result can be past the end of <paramref name="data"/> when the field is
+    /// not fully received yet. The Ingenico Lane3600 caps the DP length at 999 when the receipt
+    /// is longer (a duplicate with both copies is ~2,150 chars), so a DP declared 999 long ends
+    /// at its own '?' end marker, found by walking its sub-tags and '*' line separators.
+    /// </summary>
+    internal static int FieldEnd(string data, int pos)
+    {
+        if (pos + 6 > data.Length) return data.Length + 1;
+        var header = data.Substring(pos, 6);
+        if (!header.All(char.IsDigit)) return -1;
+        var declaredEnd = pos + 6 + int.Parse(header.Substring(3));
+        if (header != TlvTags.Dp + "999") return declaredEnd;
+
+        var i = pos + 6;
+        while (i < data.Length)
+        {
+            if (data[i] == '*') { i++; continue; }
+            if (data[i] == '?') return Math.Max(i + 1, declaredEnd);
+            if (i + 6 > data.Length) return data.Length + 1; // rest of the receipt not received yet
+            var sub = data.Substring(i, 6);
+            if (!sub.All(char.IsDigit)) return declaredEnd;
+            i += 6 + int.Parse(sub.Substring(3));
+        }
+        return data.Length + 1;
+    }
+
+    /// <summary>
     /// Parse a TLV string into a tag → value dictionary.
     /// Card numbers are masked here, before anything else sees the reply: the PAN in tag
     /// 007 (NCAR) and any card number in the receipt text of tag 010 (DP).
@@ -406,13 +434,11 @@ internal static class TlvProtocol
         {
             if (tlv[index] is '!' or '?') break;
 
+            var end = FieldEnd(tlv, index);
+            if (end < 0 || end > tlv.Length) break;
+
             var tag = tlv.Substring(index, 3);
-            var lenStr = tlv.Substring(index + 3, 3);
-
-            if (!int.TryParse(lenStr, out var length)) break;
-            if (index + 6 + length > tlv.Length) break;
-
-            var value = tlv.Substring(index + 6, length);
+            var value = tlv.Substring(index + 6, end - index - 6);
 
             // Mask card numbers immediately — the full number never leaves this method.
             if (tag == TlvTags.Ncar)
@@ -421,7 +447,7 @@ internal static class TlvProtocol
                 value = MaskCardNumbersInDp(value);
 
             fields[tag] = value;
-            index += 6 + length;
+            index = end;
         }
 
         return fields;

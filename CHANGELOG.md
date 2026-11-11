@@ -31,6 +31,9 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
   happened to stop on one, and receipt lines inside DP end with '?', so an unlucky ~1 KB read
   could cut a reply short. Non-TLV data (the Lane3600 writes 999 as the length of a longer
   receipt) still ends on a trailing terminator.
+- **Long receipts.** The Lane3600 writes 999 as the DP length when the receipt is longer (a
+  duplicate holding both copies is ~2,150 chars). A DP declared 999 long now ends at its own
+  '?' end marker, found by walking its sub-tags; it used to be cut at 999 chars.
 - **USB serial: port closed after a failed exchange.** After a timeout or error the
   kept-open port is closed, so a reply that arrives late is never read as the answer
   to the next request. The next operation reopens it (and waits again).
