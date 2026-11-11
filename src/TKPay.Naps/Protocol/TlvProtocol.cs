@@ -462,7 +462,8 @@ internal static class TlvProtocol
             if (data[i] == '?') return Math.Max(i + 1, declaredEnd);
             if (i + 6 > data.Length) return data.Length + 1; // rest of the receipt not received yet
             var sub = data.Substring(i, 6);
-            if (!sub.All(IsAsciiDigit)) return declaredEnd;
+            // Receipt sub-tags are 030–039; anything else is a top-level field, so the DP was really 999.
+            if (!sub.All(IsAsciiDigit) || !sub.StartsWith("03", StringComparison.Ordinal)) return declaredEnd;
             i += 6 + int.Parse(sub.Substring(3));
         }
         return data.Length + 1;

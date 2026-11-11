@@ -34,6 +34,8 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
 - **Long receipts.** The Lane3600 writes 999 as the DP length when the receipt is longer (a
   duplicate holding both copies is ~2,150 chars). A DP declared 999 long now ends at its own
   '?' end marker, found by walking its sub-tags; it used to be cut at 999 chars.
+  A DP really 999 long (no '?') stops at its first non-receipt sub-tag (not 030–039), so it
+  never swallows the fields after it.
 - **USB serial: accented text.** The Lane3600 counts field and DP sub-tag lengths in UTF-8
   bytes. A multi-byte character in a receipt line (it sends `ç` as a 3-byte replacement
   character) made the character walk read 2 characters of the next line into it. Serial replies

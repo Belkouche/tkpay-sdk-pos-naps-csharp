@@ -346,4 +346,20 @@ public class TlvProtocolTests
         Assert.Equal("000", fields[TlvTags.CR]);
         Assert.Equal(LongFrame, TlvProtocol.ByteLengthsToCharLengths(LongFrame)); // ASCII unchanged
     }
+
+    [Fact]
+    public void Parse_DpReally999WithoutEndMarker_DoesNotSwallowNextFields()
+    {
+        var dp = "";
+        var n = 0;
+        while (999 - dp.Length > 75) dp += $"*030002{n++ % 100:D2}031001S032001G033040{new string('X', 40)}";
+        var rest = 999 - dp.Length - 7;
+        dp += $"*033{rest:D3}{new string('X', rest)}"; // exactly 999 chars, no end marker
+
+        var fields = TlvProtocol.Parse("001003108" + "010999" + dp + "013003000" + "0070165167940000003315" + "!");
+
+        Assert.Equal(dp, fields[TlvTags.Dp]);
+        Assert.Equal("000", fields[TlvTags.CR]);
+        Assert.Equal("516794******3315", fields[TlvTags.Ncar]);
+    }
 }
