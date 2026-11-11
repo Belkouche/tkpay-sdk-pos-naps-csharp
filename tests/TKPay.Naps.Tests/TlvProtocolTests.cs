@@ -330,4 +330,20 @@ public class TlvProtocolTests
         Assert.Equal("000", fields[TlvTags.CR]);
         ReceiptParser.Parse(fields[TlvTags.Dp], TKPay.Naps.Models.ReceiptType.Merchant); // must not throw
     }
+
+    [Fact]
+    public void ByteLengthsToCharLengths_RewritesFieldAndDpSubTagLengths()
+    {
+        // "Copie Commerçé" is 14 chars but 16 UTF-8 bytes; the Lane3600 declares 016.
+        var dp = "*03000201033016Copie Commerçé*03000202033004NEXT?";
+        var dpBytes = System.Text.Encoding.UTF8.GetByteCount(dp);
+        var frame = System.Text.Encoding.UTF8.GetBytes($"001003108010{dpBytes:D3}{dp}013003000!");
+
+        var converted = TlvProtocol.ByteLengthsToCharLengths(TlvProtocol.Latin1.GetString(frame));
+        var fields = TlvProtocol.Parse(converted);
+
+        Assert.Equal(dp.Replace("033016", "033014"), fields[TlvTags.Dp]); // length now in characters
+        Assert.Equal("000", fields[TlvTags.CR]);
+        Assert.Equal(LongFrame, TlvProtocol.ByteLengthsToCharLengths(LongFrame)); // ASCII unchanged
+    }
 }

@@ -34,6 +34,13 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
 - **Long receipts.** The Lane3600 writes 999 as the DP length when the receipt is longer (a
   duplicate holding both copies is ~2,150 chars). A DP declared 999 long now ends at its own
   '?' end marker, found by walking its sub-tags; it used to be cut at 999 chars.
+- **USB serial: accented text.** The Lane3600 counts field and DP sub-tag lengths in UTF-8
+  bytes. A multi-byte character in a receipt line (it sends `ç` as a 3-byte replacement
+  character) made the character walk read 2 characters of the next line into it. Serial replies
+  are now read byte for byte and their lengths rewritten in characters before parsing. TCP
+  (Sunmi, whose lengths count characters) is unchanged.
+- **Docs:** on the Lane3600 only the last transaction can be reprinted; a duplicate by STAN
+  answers CR 381.
 - **USB serial: port closed after a failed exchange.** After a timeout or error the
   kept-open port is closed, so a reply that arrives late is never read as the answer
   to the next request. The next operation reopens it (and waits again).

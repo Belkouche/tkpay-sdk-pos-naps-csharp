@@ -178,7 +178,7 @@ internal sealed class SerialConnection : ITerminalConnection
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf.Take(count));
-        var done = TlvProtocol.IsCompleteResponse(rawBytes);
+        var done = TlvProtocol.IsCompleteResponse(rawBytes, byteLengths: true);
 
         // Drain remaining chunks with a 1-second inter-chunk silence fallback.
         while (!done)
@@ -195,7 +195,7 @@ internal sealed class SerialConnection : ITerminalConnection
 #endif
                 if (count == 0) break;
                 rawBytes.AddRange(buf.Take(count));
-                done = TlvProtocol.IsCompleteResponse(rawBytes);
+                done = TlvProtocol.IsCompleteResponse(rawBytes, byteLengths: true);
             }
             catch (OperationCanceledException) when (!userCt.IsCancellationRequested)
             {
@@ -206,7 +206,8 @@ internal sealed class SerialConnection : ITerminalConnection
         if (rawBytes.Count == 0)
             throw NapsException.InvalidResponse("Empty response from terminal.");
 
-        var result = Encoding.UTF8.GetString(rawBytes.ToArray());
+        // The Lane3600's lengths count bytes: read byte for byte, then rewrite them in characters.
+        var result = TlvProtocol.ByteLengthsToCharLengths(TlvProtocol.Latin1.GetString(rawBytes.ToArray()));
 
         // The terminator ('!' v2, '?' v1), when present, is left in place: TlvProtocol.Parse
         // stops at it on a field boundary. Stripping by character could cut a frame sent

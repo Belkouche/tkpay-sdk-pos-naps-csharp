@@ -267,6 +267,12 @@ var byStan = await client.DuplicateReceiptByStanAsync("124589");
 Console.WriteLine(byStan.IsApproved() ? byStan.MerchantReceipt?.ToPlainText() : $"Not found [{byStan.ResponseCode}]");
 ```
 
+On the Ingenico Lane3600, only the last transaction can be reprinted: a duplicate by STAN
+answered CR 381, even for a sale made minutes earlier. Its duplicate holds both copies
+(merchant, then customer marked DUPLICATA) and has no STAN tag; read the STAN from the receipt
+text. To check a pending void on the Lane, call `DuplicateReceiptAsync()` straight away, before
+any other transaction.
+
 **Totals (TM 010)** — the terminal's running totals, as a `Receipt`:
 
 ```csharp
@@ -557,7 +563,7 @@ copies shown in [Receipts](#receipts-dp-block).
 | CR **909** | System failure — terminal or bank host unavailable. On a void, also returned when TM 004 lacks the amount: the SDK echoes TM 103's amount, falling back to `amountCentimes` — always pass it. |
 | CR **302** | Record not found — wrong STAN, or a transaction from another business day. |
 | CR **482** (or **992** on the live terminal) | Already cancelled. On a retry after a pending void, this means the first void went through. |
-| Void `Pending` | See [How a void works](#how-a-void-works): reprint by STAN with `DuplicateReceiptByStanAsync`, or retry the void and look for "already cancelled". |
+| Void `Pending` | See [How a void works](#how-a-void-works): reprint by STAN with `DuplicateReceiptByStanAsync` (on the Lane3600, `DuplicateReceiptAsync` for the last transaction), or retry the void and look for "already cancelled". |
 | Payment declined with a code you don't recognise | `NapsTlv.DescribeResponse(code)`, or the table in `TlvProtocol.cs`. |
 
 ---

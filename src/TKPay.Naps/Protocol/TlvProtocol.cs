@@ -214,14 +214,63 @@ internal static class TlvProtocol
     /// fields (<see cref="IsCompleteMessage"/>) only when the data ends with '!' or '?', so the
     /// buffer is not re-decoded after every chunk. A reply ending otherwise closes on silence.
     /// </summary>
-    internal static bool IsCompleteResponse(List<byte> rawBytes)
+    internal static bool IsCompleteResponse(List<byte> rawBytes, bool byteLengths = false)
     {
         if (rawBytes.Count > MaxResponseBytes)
             throw NapsException.InvalidResponse($"Response larger than {MaxResponseBytes} bytes.");
         var last = rawBytes[rawBytes.Count - 1];
         return (last == (byte)'!' || last == (byte)'?')
-            && IsCompleteMessage(Encoding.UTF8.GetString(rawBytes.ToArray()));
+            && IsCompleteMessage((byteLengths ? Latin1 : Encoding.UTF8).GetString(rawBytes.ToArray()));
     }
+
+    /// <summary>One character per byte, so a walk over the decoded text counts bytes.</summary>
+    internal static readonly Encoding Latin1 = Encoding.GetEncoding(28591);
+
+    /// <summary>
+    /// Rewrite a frame whose lengths count bytes into one whose lengths count characters. The
+    /// Ingenico Lane3600 over USB counts UTF-8 bytes (a 3-byte character in a DP line made a
+    /// character-based walk read 2 characters into the next line); the rest of the SDK counts
+    /// characters, as the Sunmi does over TCP. <paramref name="latin1"/> holds one character per
+    /// received byte. Each value, and each DP sub-tag value, is decoded as UTF-8 and its length
+    /// rewritten (DP still capped at 999, as the terminal sends it).
+    /// </summary>
+    internal static string ByteLengthsToCharLengths(string latin1)
+    {
+        var sb = new StringBuilder(latin1.Length);
+        var pos = 0;
+        while (pos < latin1.Length && latin1[pos] is not ('!' or '?'))
+        {
+            var end = FieldEnd(latin1, pos);
+            if (end < 0 || end > latin1.Length) break;
+            var tag = latin1.Substring(pos, 3);
+            var raw = latin1.Substring(pos + 6, end - pos - 6);
+            var value = tag == TlvTags.Dp ? DpBytesToChars(raw) : FromBytes(raw);
+            sb.Append(tag).Append(LenField(value.Length)).Append(value);
+            pos = end;
+        }
+        return sb.Append(FromBytes(latin1.Substring(pos))).ToString();
+    }
+
+    private static string DpBytesToChars(string dp)
+    {
+        var sb = new StringBuilder(dp.Length);
+        var i = 0;
+        while (i < dp.Length)
+        {
+            if (dp[i] is '*' or '?') { sb.Append(dp[i++]); continue; }
+            if (i + 6 > dp.Length || !dp.Substring(i, 6).All(IsAsciiDigit)) break;
+            var end = i + 6 + int.Parse(dp.Substring(i + 3, 3));
+            if (end > dp.Length) break;
+            var value = FromBytes(dp.Substring(i + 6, end - i - 6));
+            sb.Append(dp, i, 3).Append(LenField(value.Length)).Append(value);
+            i = end;
+        }
+        return sb.Append(FromBytes(dp.Substring(i))).ToString();
+    }
+
+    private static string FromBytes(string latin1) => Encoding.UTF8.GetString(Latin1.GetBytes(latin1));
+
+    private static string LenField(int n) => Math.Min(n, 999).ToString("D3");
 
     /// <summary>
     /// True once <paramref name="buf"/> holds a complete message: walking the fields by their
