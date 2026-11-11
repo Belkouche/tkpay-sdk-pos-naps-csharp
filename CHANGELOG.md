@@ -18,11 +18,14 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
   `IAsyncDisposable`; dispose it to close the port. TCP still opens one connection per
   operation. Run `NetworkTestAsync()` when the point-of-sale app starts so the first
   sale does not wait.
-- **USB serial: void right after a payment.** On the Lane3600 a `CancelAsync` called
-  straight after `ProcessPaymentAsync` got no reply to TM 003 and timed out, twice; the
-  same void sent seconds later completed. Requests now end with the protocol terminator
-  ('!' v2, '?' v1), and are written at least 0.5 s after the terminal's last reply, both
-  as in the Node SDK. The 0.5 s wait alone did not fix it.
+- **USB serial: back-to-back operations.** After a reply the Lane3600 keeps showing or
+  printing the result for a moment, and a request arriving then was lost: a void sent
+  right after a payment got no reply and timed out, and a payment sent 0.5 s after a
+  network test was refused (CR 100) without asking for a card. A request that starts a
+  new operation now waits 3 s after the terminal's last reply; the confirmations
+  (TM 002, TM 004) wait 0.5 s. Requests also end with the protocol terminator ('!' v2,
+  '?' v1), as in the Node SDK. Verified on the terminal: network test → 1 MAD payment →
+  immediate void, all completed (sale 000256, void 000257).
 - **USB serial: port closed after a failed exchange.** After a timeout or error the
   kept-open port is closed, so a reply that arrives late is never read as the answer
   to the next request. The next operation reopens it (and waits again).

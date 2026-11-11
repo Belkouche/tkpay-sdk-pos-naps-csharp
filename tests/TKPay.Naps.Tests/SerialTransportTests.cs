@@ -157,24 +157,41 @@ public class SerialReadyWaitTests
     [Fact]
     public void FirstFrameWaitsUntilPortOpen32Seconds()
     {
-        Assert.Equal(TimeSpan.FromSeconds(32), SerialConnection.RemainingWait(Opened, default, Opened));
-        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(30)));
+        Assert.Equal(TimeSpan.FromSeconds(32), SerialConnection.RemainingWait(Opened, default, Opened, false));
+        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(30), false));
     }
 
     [Fact]
     public void NoWaitOncePortHasBeenOpen32Seconds()
     {
-        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(32)));
-        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddMinutes(10)));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(32), false));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddMinutes(10), false));
     }
 
     [Fact]
-    public void NextFrameWaitsHalfASecondAfterTheLastReply()
+    public void ConfirmationWaitsHalfASecondAfterTheLastReply()
     {
-        // Lane3600: a TM 003 written the instant TM 102 arrived was dropped.
         var lastRx = Opened.AddSeconds(50);
-        Assert.Equal(TimeSpan.FromMilliseconds(500), SerialConnection.RemainingWait(Opened, lastRx, lastRx));
-        Assert.Equal(TimeSpan.FromMilliseconds(200), SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddMilliseconds(300)));
-        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(1)));
+        Assert.Equal(TimeSpan.FromMilliseconds(500), SerialConnection.RemainingWait(Opened, lastRx, lastRx, true));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(1), true));
     }
+
+    [Fact]
+    public void NewOperationWaitsThreeSecondsAfterTheLastReply()
+    {
+        // Lane3600: a TM 003 right after TM 102, or a TM 001 0.5 s after TM 109, was lost.
+        var lastRx = Opened.AddSeconds(50);
+        Assert.Equal(TimeSpan.FromSeconds(3), SerialConnection.RemainingWait(Opened, lastRx, lastRx, false));
+        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(1), false));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(3), false));
+    }
+
+    [Theory]
+    [InlineData("001003002003007", true)]
+    [InlineData("001003004003007", true)]
+    [InlineData("001003001002003", false)]
+    [InlineData("001003003003007", false)]
+    [InlineData("001003009003007", false)]
+    public void IsPhase2_OnlyForPaymentAndVoidConfirmations(string frame, bool expected) =>
+        Assert.Equal(expected, SerialConnection.IsPhase2(frame));
 }

@@ -24,11 +24,18 @@ internal sealed class SerialConnection : ITerminalConnection
     internal static readonly TimeSpan ReadyDelay = TimeSpan.FromSeconds(32);
 
     /// <summary>
-    /// Quiet time kept between the terminal's last byte and our next frame. On the Lane3600 a
-    /// TM 003 written the instant TM 102 arrived was dropped (no reply, void never started);
-    /// the same frame sent seconds later completed. The Node SDK's 0.5 s works there.
+    /// Quiet time before a phase-2 frame (TM 002, TM 004), which the terminal is actively
+    /// waiting for after its TM 101 / TM 103.
     /// </summary>
     internal static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Quiet time before any frame that starts a new operation. After a reply the Lane3600 keeps
+    /// showing or printing the result for a moment, and a request arriving then is lost: a TM 003
+    /// sent right after TM 102 got no reply, and a TM 001 sent 0.5 s after TM 109 was refused
+    /// with CR 100 without asking for a card. The same requests sent 3 s later completed.
+    /// </summary>
+    internal static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(3);
 
     private readonly NapsConfig _config;
     private SerialPort? _port;
@@ -93,7 +100,7 @@ internal sealed class SerialConnection : ITerminalConnection
 
         try
         {
-            var wait = RemainingWait(_openedAtUtc, _lastRxUtc, DateTime.UtcNow);
+            var wait = RemainingWait(_openedAtUtc, _lastRxUtc, DateTime.UtcNow, IsPhase2(tlvMessage));
             if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
 
             // --- Send TLV + terminator. The Lane3600 dropped an unterminated TM 003 sent while
@@ -131,15 +138,20 @@ internal sealed class SerialConnection : ITerminalConnection
 
     /// <summary>
     /// Time to wait before writing: until the port has been open <see cref="ReadyDelay"/>, and
-    /// <see cref="SettleDelay"/> has passed since the terminal's last reply.
+    /// <see cref="SettleDelay"/> (phase 2) or <see cref="IdleDelay"/> (new operation) has
+    /// passed since the terminal's last reply.
     /// </summary>
-    internal static TimeSpan RemainingWait(DateTime openedAtUtc, DateTime lastRxUtc, DateTime nowUtc)
+    internal static TimeSpan RemainingWait(DateTime openedAtUtc, DateTime lastRxUtc, DateTime nowUtc, bool phase2)
     {
         var readyAt = openedAtUtc + ReadyDelay;
-        var settledAt = lastRxUtc + SettleDelay;
+        var settledAt = lastRxUtc + (phase2 ? SettleDelay : IdleDelay);
         var left = (readyAt > settledAt ? readyAt : settledAt) - nowUtc;
         return left > TimeSpan.Zero ? left : TimeSpan.Zero;
     }
+
+    /// <summary>TM 002 / TM 004: the confirmation the terminal is waiting for, not a new operation.</summary>
+    internal static bool IsPhase2(string tlvMessage) =>
+        tlvMessage.StartsWith("001003002") || tlvMessage.StartsWith("001003004");
 
     /// <summary>
     /// Read from the serial stream until an end-of-message terminator ('!' or '?',
