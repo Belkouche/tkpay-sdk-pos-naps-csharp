@@ -157,14 +157,24 @@ public class SerialReadyWaitTests
     [Fact]
     public void FirstFrameWaitsUntilPortOpen32Seconds()
     {
-        Assert.Equal(TimeSpan.FromSeconds(32), SerialConnection.RemainingReadyWait(Opened, Opened));
-        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingReadyWait(Opened, Opened.AddSeconds(30)));
+        Assert.Equal(TimeSpan.FromSeconds(32), SerialConnection.RemainingWait(Opened, default, Opened));
+        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(30)));
     }
 
     [Fact]
     public void NoWaitOncePortHasBeenOpen32Seconds()
     {
-        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingReadyWait(Opened, Opened.AddSeconds(32)));
-        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingReadyWait(Opened, Opened.AddMinutes(10)));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(32)));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddMinutes(10)));
+    }
+
+    [Fact]
+    public void NextFrameWaitsHalfASecondAfterTheLastReply()
+    {
+        // Lane3600: a TM 003 written the instant TM 102 arrived was dropped.
+        var lastRx = Opened.AddSeconds(50);
+        Assert.Equal(TimeSpan.FromMilliseconds(500), SerialConnection.RemainingWait(Opened, lastRx, lastRx));
+        Assert.Equal(TimeSpan.FromMilliseconds(200), SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddMilliseconds(300)));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(1)));
     }
 }

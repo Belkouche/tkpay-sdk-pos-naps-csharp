@@ -23,9 +23,17 @@ internal sealed class SerialConnection : ITerminalConnection
     /// </summary>
     internal static readonly TimeSpan ReadyDelay = TimeSpan.FromSeconds(32);
 
+    /// <summary>
+    /// Quiet time kept between the terminal's last byte and our next frame. On the Lane3600 a
+    /// TM 003 written the instant TM 102 arrived was dropped (no reply, void never started);
+    /// the same frame sent seconds later completed. The Node SDK's 0.5 s works there.
+    /// </summary>
+    internal static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(500);
+
     private readonly NapsConfig _config;
     private SerialPort? _port;
     private DateTime _openedAtUtc;
+    private DateTime _lastRxUtc;
 
     internal SerialConnection(NapsConfig config)
     {
@@ -85,7 +93,7 @@ internal sealed class SerialConnection : ITerminalConnection
 
         try
         {
-            var wait = RemainingReadyWait(_openedAtUtc, DateTime.UtcNow);
+            var wait = RemainingWait(_openedAtUtc, _lastRxUtc, DateTime.UtcNow);
             if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
 
             // --- Send raw TLV (no terminator), same framing as TCP ---
@@ -102,7 +110,9 @@ internal sealed class SerialConnection : ITerminalConnection
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(timeout);
 
-            return await ReadResponseAsync(_port.BaseStream, cts.Token, ct);
+            var response = await ReadResponseAsync(_port.BaseStream, cts.Token, ct);
+            _lastRxUtc = DateTime.UtcNow;
+            return response;
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
@@ -114,10 +124,15 @@ internal sealed class SerialConnection : ITerminalConnection
         }
     }
 
-    /// <summary>Time left before the port has been open <see cref="ReadyDelay"/>.</summary>
-    internal static TimeSpan RemainingReadyWait(DateTime openedAtUtc, DateTime nowUtc)
+    /// <summary>
+    /// Time to wait before writing: until the port has been open <see cref="ReadyDelay"/>, and
+    /// <see cref="SettleDelay"/> has passed since the terminal's last reply.
+    /// </summary>
+    internal static TimeSpan RemainingWait(DateTime openedAtUtc, DateTime lastRxUtc, DateTime nowUtc)
     {
-        var left = openedAtUtc + ReadyDelay - nowUtc;
+        var readyAt = openedAtUtc + ReadyDelay;
+        var settledAt = lastRxUtc + SettleDelay;
+        var left = (readyAt > settledAt ? readyAt : settledAt) - nowUtc;
         return left > TimeSpan.Zero ? left : TimeSpan.Zero;
     }
 
