@@ -495,11 +495,12 @@ Timeouts and framing, as implemented:
   including the time the cardholder takes at the terminal.
 - `ConfirmationTimeout` (default **40 seconds**) covers TM 102 and TM 104. For a
   void, running out of time gives a `Pending` result instead of an exception.
-- A reply ends at the terminator — `!` (protocol v2, TCP default) or `?` (v1, USB
-  serial default); both are accepted either way — or after **1 second** of silence,
+- A reply ends at a terminator on a field boundary — `!` (protocol v2, the default on
+  both transports) or `?` (v1); both are accepted either way — or after **1 second** of silence,
   because the live terminal sends TM 103/104 without a terminator.
-- Requests are sent without a terminator. Force the version with
-  `new NapsConfig(host: "…", protocolVersion: ProtocolVersion.V1)` if needed.
+- Over TCP, requests are sent without a terminator (the Sunmi's NapsPay app did not answer a
+  `!`-terminated frame). Over USB they end with the version's terminator. Force v1 with
+  `protocolVersion: ProtocolVersion.V1` for a legacy terminal.
 
 ---
 

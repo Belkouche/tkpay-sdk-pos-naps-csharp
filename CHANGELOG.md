@@ -41,6 +41,9 @@ Ported from the Node SDK after live testing on a Lane3600 over USB.
   (Sunmi, whose lengths count characters) is unchanged.
 - **Docs:** on the Lane3600 only the last transaction can be reprinted; a duplicate by STAN
   answers CR 381.
+- **USB serial defaults to protocol v2** (was v1). The Lane3600 ends every reply with '!' and
+  was only verified with '!'-terminated requests; a '?'-terminated request was never tested.
+  Set `ProtocolVersion.V1` explicitly for a legacy terminal.
 - **USB serial: port closed after a failed exchange.** After a timeout or error the
   kept-open port is closed, so a reply that arrives late is never read as the answer
   to the next request. The next operation reopens it (and waits again).

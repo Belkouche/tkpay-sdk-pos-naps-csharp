@@ -85,12 +85,13 @@ public class PortDiscoverySelectionTests
 public class TransportProtocolDefaultTests
 {
     [Fact]
-    public void Serial_DefaultsToV1()
+    public void Serial_DefaultsToV2()
     {
+        // The Lane3600 over USB ends every reply with '!'.
         var config = NapsConfig.Serial();
         Assert.Equal(TransportType.UsbSerial, config.Transport);
-        Assert.Equal(ProtocolVersion.V1, config.ProtocolVersion);
-        Assert.Equal('?', config.Terminator);
+        Assert.Equal(ProtocolVersion.V2, config.ProtocolVersion);
+        Assert.Equal('!', config.Terminator);
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public class TransportProtocolDefaultTests
     }
 
     [Theory]
-    [InlineData(TransportType.UsbSerial, ProtocolVersion.V1)]
+    [InlineData(TransportType.UsbSerial, ProtocolVersion.V2)]
     [InlineData(TransportType.TcpSocket, ProtocolVersion.V2)]
     public void ResolveDefaultProtocol_PerTransport(TransportType transport, ProtocolVersion expected)
     {
