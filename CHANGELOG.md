@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased] — Ingenico Lane3600
+
+Ported from the Node SDK after live testing on a Lane3600 over USB.
+
+- **USB serial: payment confirmation no longer lost.** The Lane3600 holds back every
+  answer until about 30 s after the port opens. When a payment was the first frame,
+  its TM 101 arrived 30 s late, after the terminal had stopped waiting for TM 002: it
+  showed "attente validation caisse", timed out, and the authorised payment was not
+  recorded. The first frame now waits until the port has been open 32 s. Keep the
+  connection open between transactions so the wait happens once.
+- **Void receipt.** When TM 103 carries no receipt, as on the Lane3600, `CancelAsync`
+  returns the TM 104 receipt (the only void receipt, "SIGNATURE CLIENT") as
+  `MerchantReceipt` instead of `CustomerReceipt`. Terminals that send a receipt with
+  TM 103 are unchanged.
+
 ## [1.5.1]
 
 - **Card numbers masked everywhere (first 6 + last 4 digits).** Tag 007 is always

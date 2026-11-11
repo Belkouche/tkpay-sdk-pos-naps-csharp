@@ -149,3 +149,22 @@ public class TransportProtocolDefaultTests
         Assert.Null(config.SerialPortName);
     }
 }
+
+public class SerialReadyWaitTests
+{
+    private static readonly DateTime Opened = new(2026, 11, 11, 7, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void FirstFrameWaitsUntilPortOpen32Seconds()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(32), SerialConnection.RemainingReadyWait(Opened, Opened));
+        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingReadyWait(Opened, Opened.AddSeconds(30)));
+    }
+
+    [Fact]
+    public void NoWaitOncePortHasBeenOpen32Seconds()
+    {
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingReadyWait(Opened, Opened.AddSeconds(32)));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingReadyWait(Opened, Opened.AddMinutes(10)));
+    }
+}

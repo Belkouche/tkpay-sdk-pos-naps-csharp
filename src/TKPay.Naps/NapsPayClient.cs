@@ -211,12 +211,16 @@ public sealed class NapsPayClient
         {
             case TlvTags.RcApproved:
             case TlvTags.RcReversalAccepted:
-                Receipt? customerReceipt = null;
-                if (confirmation.TryGetValue(TlvTags.Dp, out var customerDp))
-                    customerReceipt = ReceiptParser.Parse(customerDp, ReceiptType.Customer);
+                var voidStan = confirmation.GetValueOrDefault(TlvTags.Stan) ?? originalStan;
+                if (!confirmation.TryGetValue(TlvTags.Dp, out var confirmDp))
+                    return CancellationResult.Success(rc, voidStan, merchantReceipt, null);
+                // Ingenico Lane3600: TM 103 has no receipt and TM 104 carries the only void
+                // receipt ("SIGNATURE CLIENT"), so it is the merchant copy.
+                if (merchantReceipt is null)
+                    return CancellationResult.Success(
+                        rc, voidStan, ReceiptParser.Parse(confirmDp, ReceiptType.Merchant), null);
                 return CancellationResult.Success(
-                    rc, confirmation.GetValueOrDefault(TlvTags.Stan) ?? originalStan,
-                    merchantReceipt, customerReceipt);
+                    rc, voidStan, merchantReceipt, ReceiptParser.Parse(confirmDp, ReceiptType.Customer));
             case TlvTags.RcServerProcessingError:
                 return CancellationResult.Pending(rc, originalStan, merchantReceipt);
             default:

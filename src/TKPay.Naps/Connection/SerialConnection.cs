@@ -13,8 +13,19 @@ namespace TKPay.Naps.Connection;
 /// </summary>
 internal sealed class SerialConnection : ITerminalConnection
 {
+    /// <summary>
+    /// The Ingenico Lane3600 holds back every answer until ~30 s after the port opens: the
+    /// first frame's reply always landed at 30.1 s. A TM 101 delayed that way reached us after
+    /// the terminal had given up waiting for TM 002 ("attente validation caisse" timeout), so
+    /// the payment was never recorded. Frames sent once the port has been open this long answer
+    /// normally, so the first frame waits for it. Keep the client connected between
+    /// transactions to pay this once.
+    /// </summary>
+    internal static readonly TimeSpan ReadyDelay = TimeSpan.FromSeconds(32);
+
     private readonly NapsConfig _config;
     private SerialPort? _port;
+    private DateTime _openedAtUtc;
 
     internal SerialConnection(NapsConfig config)
     {
@@ -45,6 +56,7 @@ internal sealed class SerialConnection : ITerminalConnection
                 RtsEnable = false
             };
             _port.Open();
+            _openedAtUtc = DateTime.UtcNow;
         }
         catch (Exception ex) when (ex is not NapsException)
         {
@@ -73,6 +85,9 @@ internal sealed class SerialConnection : ITerminalConnection
 
         try
         {
+            var wait = RemainingReadyWait(_openedAtUtc, DateTime.UtcNow);
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+
             // --- Send raw TLV (no terminator), same framing as TCP ---
             var bytes = Encoding.UTF8.GetBytes(tlvMessage);
             _port.DiscardInBuffer();
@@ -97,6 +112,13 @@ internal sealed class SerialConnection : ITerminalConnection
         {
             throw NapsException.ConnectionFailed(ex);
         }
+    }
+
+    /// <summary>Time left before the port has been open <see cref="ReadyDelay"/>.</summary>
+    internal static TimeSpan RemainingReadyWait(DateTime openedAtUtc, DateTime nowUtc)
+    {
+        var left = openedAtUtc + ReadyDelay - nowUtc;
+        return left > TimeSpan.Zero ? left : TimeSpan.Zero;
     }
 
     /// <summary>

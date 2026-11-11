@@ -23,13 +23,20 @@ The SDK has two transports: **TCP** (the terminal's NAPS Pay app listens on port
 | Terminal (spec §2) | Connection in the spec | What this SDK supports |
 |---|---|---|
 | Sunmi P2, Sunmi P3, Sunmi P2 Smart PAD | Wi-Fi TCP port 4444, or USB | **TCP**: `new NapsConfig(host: "…")`. USB to a Sunmi has not been tested with this SDK — use Wi-Fi. |
-| Ingenico Self 5000, Ingenico Lane 3600 | USB only | **USB serial**: `NapsConfig.Serial(…)`. Port auto-discovery looks for Ingenico's USB vendor id `0x0B00`. The serial transport was developed against an Ingenico Lane/3000; Self 5000 and Lane 3600 have not been tested. |
+| Ingenico Self 5000, Ingenico Lane 3600 | USB only | **USB serial**: `NapsConfig.Serial(…)`. Port auto-discovery looks for Ingenico's USB vendor id `0x0B00`. The serial transport was developed against an Ingenico Lane/3000; this SDK has not been run on a Self 5000 or Lane 3600 (the Lane 3600 behaviour below was found with the Node SDK). |
+
+**Lane 3600 over USB:** the terminal holds back its answers until about 30 s after the
+port opens, so the first request after opening waits until the port has been open 32 s.
+A payment sent earlier would get its approval too late to confirm ("attente validation
+caisse", then timeout). Open the connection once when the app starts and keep it open
+between transactions, so only the first request waits.
 
 ```csharp
 // Sunmi over Wi-Fi (TCP 4444). Terminal and register must be on the same network.
 var tcp = new NapsConfig(host: "192.168.1.50");
 
 // Ingenico over USB serial: null port name = auto-discover, or pass "COM5" / "/dev/ttyACM0".
+// The first request after the port opens waits until it has been open 32 s (see below).
 var usb = NapsConfig.Serial();
 
 // Optional settings (defaults shown).
@@ -164,6 +171,9 @@ Voiding (cancelling) a payment is also two pairs on one connection:
 2. **Cancellation confirmation (TM 004 → TM 104).** The SDK sends it right away; this
    is what actually executes the reversal. TM 104 carries the void's own STAN and the
    customer void receipt.
+
+The Ingenico Lane3600 sends no receipt with TM 103: its only void receipt comes with
+TM 104, and the SDK returns it as `MerchantReceipt`, with no `CustomerReceipt`.
 
 `CancelAsync` returns a `CancellationResult` whose `Status` is one of:
 

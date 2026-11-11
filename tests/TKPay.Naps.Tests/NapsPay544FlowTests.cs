@@ -118,6 +118,33 @@ public class NapsPay544FlowTests
     // -------------------------------------------------------------------------
 
     [Fact]
+    public async Task CancelAsync_Tm104ReceiptIsMerchantCopy_WhenTm103HasNone()
+    {
+        // Ingenico Lane3600: TM 103 carries no DP; TM 104 carries the only void receipt.
+        var (port, requests) = StartTerminal(frame =>
+        {
+            var tm = TlvProtocol.Parse(frame)[TlvTags.Tm];
+            return tm switch
+            {
+                "003" => F("001", "103") + F("003", "0100001") + F("013", "000") + F("008", "123456")
+                       + F("002", "000000015000") + F("012", "504")
+                       + F("018", "06112026") + F("019", "101500"),
+                "004" => F("001", "104") + F("003", "0100001") + F("013", "000")
+                       + F("008", "000777") + F("010", Receipt),
+                _ => null
+            };
+        });
+
+        var result = await Client(port).CancelAsync("123456", "01", "00001", "000042", 15000);
+        await requests;
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("000777", result.Stan);
+        Assert.NotNull(result.MerchantReceipt);
+        Assert.Null(result.CustomerReceipt);
+    }
+
+    [Fact]
     public async Task CancelAsync_Sends004After103_AndReturnsVoidStanAndReceipts()
     {
         var (port, requests) = StartTerminal(frame =>
