@@ -1,20 +1,47 @@
 using System.IO.Ports;
 using System.Text;
 using TKPay.Naps.Models;
+using TKPay.Naps.Protocol;
 
 namespace TKPay.Naps.Connection;
 
 /// <summary>
 /// USB serial connection to an Ingenico Lane/3000 (CDC-ACM).
 ///
-/// Speaks the same NAPS ASCII TLV protocol as the TCP transport: the raw TLV
-/// request is written without a terminator, and the response is read until the
-/// resolved end-of-message terminator ('!' v2, '?' v1) or 1 second of silence.
+/// Speaks the same NAPS ASCII TLV protocol as the TCP transport. Each request ends
+/// with the resolved terminator ('!' v2, '?' v1), and the response is read until a
+/// terminator or 1 second of silence.
 /// </summary>
 internal sealed class SerialConnection : ITerminalConnection
 {
+    /// <summary>
+    /// The Ingenico Lane3600 holds back every answer until ~30 s after the port opens: the
+    /// first frame's reply always landed at 30.1 s. A TM 101 delayed that way reached us after
+    /// the terminal had given up waiting for TM 002 ("attente validation caisse" timeout), so
+    /// the payment was never recorded. Frames sent once the port has been open this long answer
+    /// normally, so the first frame waits for it. Keep the client connected between
+    /// transactions to pay this once.
+    /// </summary>
+    internal static readonly TimeSpan ReadyDelay = TimeSpan.FromSeconds(32);
+
+    /// <summary>
+    /// Quiet time before a phase-2 frame (TM 002, TM 004), which the terminal is actively
+    /// waiting for after its TM 101 / TM 103.
+    /// </summary>
+    internal static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Quiet time before any frame that starts a new operation. After a reply the Lane3600 keeps
+    /// showing or printing the result for a moment, and a request arriving then is lost: a TM 003
+    /// sent right after TM 102 got no reply, and a TM 001 sent 0.5 s after TM 109 was refused
+    /// with CR 100 without asking for a card. The same requests sent 3 s later completed.
+    /// </summary>
+    internal static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(3);
+
     private readonly NapsConfig _config;
     private SerialPort? _port;
+    private DateTime _openedAtUtc;
+    private DateTime _lastRxUtc;
 
     internal SerialConnection(NapsConfig config)
     {
@@ -45,6 +72,7 @@ internal sealed class SerialConnection : ITerminalConnection
                 RtsEnable = false
             };
             _port.Open();
+            _openedAtUtc = DateTime.UtcNow;
         }
         catch (Exception ex) when (ex is not NapsException)
         {
@@ -73,8 +101,16 @@ internal sealed class SerialConnection : ITerminalConnection
 
         try
         {
-            // --- Send raw TLV (no terminator), same framing as TCP ---
-            var bytes = Encoding.UTF8.GetBytes(tlvMessage);
+            var wait = RemainingWait(_openedAtUtc, _lastRxUtc, DateTime.UtcNow, IsPhase2(tlvMessage));
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+
+            // --- Send TLV + terminator. The Lane3600 dropped an unterminated TM 003 sent while
+            // it was still finishing a sale (no reply, void timed out); terminated frames, as
+            // the Node SDK sends, are taken in that state too. ---
+            var frame = tlvMessage.EndsWith(_config.Terminator.ToString())
+                ? tlvMessage
+                : tlvMessage + _config.Terminator;
+            var bytes = Encoding.UTF8.GetBytes(frame);
             _port.DiscardInBuffer();
 #if NET5_0_OR_GREATER
             await _port.BaseStream.WriteAsync(bytes, ct);
@@ -87,7 +123,9 @@ internal sealed class SerialConnection : ITerminalConnection
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(timeout);
 
-            return await ReadResponseAsync(_port.BaseStream, cts.Token, ct);
+            var response = await ReadResponseAsync(_port.BaseStream, cts.Token, ct);
+            _lastRxUtc = DateTime.UtcNow;
+            return response;
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
@@ -100,6 +138,23 @@ internal sealed class SerialConnection : ITerminalConnection
     }
 
     /// <summary>
+    /// Time to wait before writing: until the port has been open <see cref="ReadyDelay"/>, and
+    /// <see cref="SettleDelay"/> (phase 2) or <see cref="IdleDelay"/> (new operation) has
+    /// passed since the terminal's last reply.
+    /// </summary>
+    internal static TimeSpan RemainingWait(DateTime openedAtUtc, DateTime lastRxUtc, DateTime nowUtc, bool phase2)
+    {
+        var readyAt = openedAtUtc + ReadyDelay;
+        var settledAt = lastRxUtc + (phase2 ? SettleDelay : IdleDelay);
+        var left = (readyAt > settledAt ? readyAt : settledAt) - nowUtc;
+        return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+    }
+
+    /// <summary>TM 002 / TM 004: the confirmation the terminal is waiting for, not a new operation.</summary>
+    internal static bool IsPhase2(string tlvMessage) =>
+        tlvMessage.StartsWith("001003002") || tlvMessage.StartsWith("001003004");
+
+    /// <summary>
     /// Read from the serial stream until an end-of-message terminator ('!' or '?',
     /// both accepted regardless of the configured version), or until 1 second of
     /// silence after the first chunk (fallback for partial frames). Response is
@@ -108,7 +163,6 @@ internal sealed class SerialConnection : ITerminalConnection
     private static async Task<string> ReadResponseAsync(
         Stream stream, CancellationToken outerCt, CancellationToken userCt)
     {
-        static bool IsTerminator(byte b) => b == (byte)'!' || b == (byte)'?';
 
         const int bufSize = 4096;
         var rawBytes = new List<byte>(bufSize);
@@ -124,7 +178,7 @@ internal sealed class SerialConnection : ITerminalConnection
             throw NapsException.InvalidResponse("Connection closed before response.");
 
         rawBytes.AddRange(buf.Take(count));
-        var done = IsTerminator(buf[count - 1]);
+        var done = TlvProtocol.IsCompleteResponse(rawBytes, byteLengths: true);
 
         // Drain remaining chunks with a 1-second inter-chunk silence fallback.
         while (!done)
@@ -141,7 +195,7 @@ internal sealed class SerialConnection : ITerminalConnection
 #endif
                 if (count == 0) break;
                 rawBytes.AddRange(buf.Take(count));
-                done = IsTerminator(buf[count - 1]);
+                done = TlvProtocol.IsCompleteResponse(rawBytes, byteLengths: true);
             }
             catch (OperationCanceledException) when (!userCt.IsCancellationRequested)
             {
@@ -152,7 +206,8 @@ internal sealed class SerialConnection : ITerminalConnection
         if (rawBytes.Count == 0)
             throw NapsException.InvalidResponse("Empty response from terminal.");
 
-        var result = Encoding.UTF8.GetString(rawBytes.ToArray());
+        // The Lane3600's lengths count bytes: read byte for byte, then rewrite them in characters.
+        var result = TlvProtocol.ByteLengthsToCharLengths(TlvProtocol.Latin1.GetString(rawBytes.ToArray()));
 
         // The terminator ('!' v2, '?' v1), when present, is left in place: TlvProtocol.Parse
         // stops at it on a field boundary. Stripping by character could cut a frame sent

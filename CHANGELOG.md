@@ -2,6 +2,68 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased] — Ingenico Lane3600
+
+Ported from the Node SDK after live testing on a Lane3600 over USB.
+
+- **USB serial: payment confirmation no longer lost.** The Lane3600 holds back every
+  answer until about 30 s after the port opens. When a payment was the first frame,
+  its TM 101 arrived 30 s late, after the terminal had stopped waiting for TM 002: it
+  showed "attente validation caisse", timed out, and the authorised payment was not
+  recorded. The first frame now waits until the port has been open 32 s. Keep the
+  connection open between transactions so the wait happens once.
+- **USB serial: one port for the life of the client.** `NapsPayClient` now keeps the
+  serial port open between operations instead of reopening it for each one, which
+  would have cost the Lane3600's ~30 s wait every time. `NapsPayClient` is now
+  `IAsyncDisposable`; dispose it to close the port. TCP still opens one connection per
+  operation. Run `NetworkTestAsync()` when the point-of-sale app starts so the first
+  sale does not wait.
+- **USB serial: back-to-back operations.** After a reply the Lane3600 keeps showing or
+  printing the result for a moment, and a request arriving then was lost: a void sent
+  right after a payment got no reply and timed out, and a payment sent 0.5 s after a
+  network test was refused (CR 100) without asking for a card. A request that starts a
+  new operation now waits 3 s after the terminal's last reply; the confirmations
+  (TM 002, TM 004) wait 0.5 s. Requests also end with the protocol terminator ('!' v2,
+  '?' v1), as in the Node SDK. Verified on the terminal: network test → 1 MAD payment →
+  immediate void, all completed (sale 000256, void 000257).
+- **Reader (USB and TCP): end of reply on a field boundary.** A reply is complete when
+  walking its fields by length lands on a '!'/'?' terminator. It used to end whenever a read
+  happened to stop on one, and receipt lines inside DP end with '?', so an unlucky ~1 KB read
+  could cut a reply short. Non-TLV data (the Lane3600 writes 999 as the length of a longer
+  receipt) still ends on a trailing terminator.
+- **Long receipts.** The Lane3600 writes 999 as the DP length when the receipt is longer (a
+  duplicate holding both copies is ~2,150 chars). A DP declared 999 long now ends at its own
+  '?' end marker, found by walking its sub-tags; it used to be cut at 999 chars.
+  A DP really 999 long (no '?') stops at its first non-receipt sub-tag (not 030–039), so it
+  never swallows the fields after it.
+- **USB serial: accented text.** The Lane3600 counts field and DP sub-tag lengths in UTF-8
+  bytes. A multi-byte character in a receipt line (it sends `ç` as a 3-byte replacement
+  character) made the character walk read 2 characters of the next line into it. Serial replies
+  are now read byte for byte and their lengths rewritten in characters before parsing. TCP
+  (Sunmi, whose lengths count characters) is unchanged.
+- **Docs:** on the Lane3600 only the last transaction can be reprinted; a duplicate by STAN
+  answers CR 381.
+- **USB serial defaults to protocol v2** (was v1). The Lane3600 ends every reply with '!' and
+  was only verified with '!'-terminated requests; a '?'-terminated request was never tested.
+  Set `ProtocolVersion.V1` explicitly for a legacy terminal.
+- **USB serial: port closed after a failed exchange.** After a timeout or error the
+  kept-open port is closed, so a reply that arrives late is never read as the answer
+  to the next request. The next operation reopens it (and waits again).
+- **Network test is USB only.** Over TCP, `NetworkTestAsync` sends nothing and returns
+  `ResponseCode = "UNSUPPORTED"`. The NapsPay app on a Sunmi P2 answers TM 009 with
+  TM 101 / CR 902 (it only handles payments and voids over the ECR link), and a test
+  frame crashed the app.
+- **Void frames follow spec v2 §4.3/§4.4.** TM 003 now carries the mandatory NS (a new
+  sequence for the void) and sends the payment's `sequence` in NSA. Without NS the
+  Lane3600 refused it with CR 307 (format error). TM 004 repeats the TM 003 NS and
+  echoes MT, DE, DATR and HETR from TM 103, in the spec order: TM, NCAI, NS, STAN, MT,
+  DE, DATR, HETR, DA, HE. The frames match the Node SDK frames that completed a void
+  on a live Lane3600 (TM 104 CR 000).
+- **Void receipt.** When TM 103 carries no receipt, as on the Lane3600, `CancelAsync`
+  returns the TM 104 receipt (the only void receipt, "SIGNATURE CLIENT") as
+  `MerchantReceipt` instead of `CustomerReceipt`. Terminals that send a receipt with
+  TM 103 are unchanged.
+
 ## [1.5.1]
 
 - **Card numbers masked everywhere (first 6 + last 4 digits).** Tag 007 is always

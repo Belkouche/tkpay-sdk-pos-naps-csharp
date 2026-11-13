@@ -23,13 +23,29 @@ The SDK has two transports: **TCP** (the terminal's NAPS Pay app listens on port
 | Terminal (spec §2) | Connection in the spec | What this SDK supports |
 |---|---|---|
 | Sunmi P2, Sunmi P3, Sunmi P2 Smart PAD | Wi-Fi TCP port 4444, or USB | **TCP**: `new NapsConfig(host: "…")`. USB to a Sunmi has not been tested with this SDK — use Wi-Fi. |
-| Ingenico Self 5000, Ingenico Lane 3600 | USB only | **USB serial**: `NapsConfig.Serial(…)`. Port auto-discovery looks for Ingenico's USB vendor id `0x0B00`. The serial transport was developed against an Ingenico Lane/3000; Self 5000 and Lane 3600 have not been tested. |
+| Ingenico Self 5000, Ingenico Lane 3600 | USB only | **USB serial**: `NapsConfig.Serial(…)`. Port auto-discovery looks for Ingenico's USB vendor id `0x0B00`. The serial transport was developed against an Ingenico Lane/3000; this SDK has not been run on a Self 5000 or Lane 3600 (the Lane 3600 behaviour below was found with the Node SDK). |
+
+**Lane 3600 over USB:** the terminal holds back its answers until about 30 s after the
+port opens, so the first request after opening waits until the port has been open 32 s.
+A payment sent earlier would get its approval too late to confirm ("attente validation
+caisse", then timeout). Over USB the client keeps the port open between operations, so
+use one `NapsPayClient` for the life of the app and dispose it on exit.
+
+**Run a network test when the point-of-sale app starts (USB only).** It takes that wait while no
+customer is waiting, checks the terminal and the bank host, and leaves the port open, so
+the first sale goes straight to the card prompt:
+
+```csharp
+await using var client = new NapsPayClient(NapsConfig.Serial());
+var net = await client.NetworkTestAsync(); // at app start: ~30 s on a Lane 3600 over USB
+```
 
 ```csharp
 // Sunmi over Wi-Fi (TCP 4444). Terminal and register must be on the same network.
 var tcp = new NapsConfig(host: "192.168.1.50");
 
 // Ingenico over USB serial: null port name = auto-discover, or pass "COM5" / "/dev/ttyACM0".
+// The first request after the port opens waits until it has been open 32 s (see below).
 var usb = NapsConfig.Serial();
 
 // Optional settings (defaults shown).
@@ -165,6 +181,9 @@ Voiding (cancelling) a payment is also two pairs on one connection:
    is what actually executes the reversal. TM 104 carries the void's own STAN and the
    customer void receipt.
 
+The Ingenico Lane3600 sends no receipt with TM 103: its only void receipt comes with
+TM 104, and the SDK returns it as `MerchantReceipt`, with no `CustomerReceipt`.
+
 `CancelAsync` returns a `CancellationResult` whose `Status` is one of:
 
 | `Status` | When | What to do |
@@ -214,8 +233,9 @@ can call `CancelAsync` again: if the first void did go through, the terminal ref
 the second with "already cancelled" (482 in the spec; 992 has been seen on a live
 v5.4.4 terminal), and if it didn't, the retry performs it.
 
-The `sequence` you pass is sent in NSA (tag 005) in TM 003 and in NS (tag 004) in
-TM 004. The amount the terminal returns in TM 103 is echoed in TM 004 — the v5.4.4
+The `sequence` you pass is the payment's sequence, sent in NSA (tag 005) in TM 003.
+The void gets a new sequence of its own in NS (tag 004), repeated in TM 004 as the spec
+requires; the TM 004 also echoes the date, time and currency returned in TM 103. The amount the terminal returns in TM 103 is echoed in TM 004 — the v5.4.4
 terminal refuses TM 004 without it (CR 909). If the terminal answers TM 003 directly
 with TM 104, the SDK classifies that TM 104 the same way without sending TM 004.
 
@@ -223,10 +243,13 @@ with TM 104, the SDK classifies that TM 104 the same way without sending TM 004.
 
 ## Other operations
 
-All of these open a connection, send one request and read one reply. `registerId`
+All of these send one request and read one reply (over TCP each opens its own connection). `registerId`
 and `cashierId` default to `"01"` / `"00001"`.
 
-**Network test (TM 009)** — checks the register → terminal → bank host chain:
+**Network test (TM 009)** — checks the register → terminal → bank host chain. USB serial
+only: over TCP nothing is sent and `ResponseCode` is `"UNSUPPORTED"`, because the NapsPay
+app on Sunmi terminals does not implement TM 009 (it answers 902) and a test frame crashed
+the app on a Sunmi P2. Use `TestConnectionAsync()` to check a TCP terminal is reachable.
 
 ```csharp
 var net = await client.NetworkTestAsync();
@@ -243,6 +266,12 @@ Console.WriteLine(last.MerchantReceipt?.ToPlainText());
 var byStan = await client.DuplicateReceiptByStanAsync("124589");
 Console.WriteLine(byStan.IsApproved() ? byStan.MerchantReceipt?.ToPlainText() : $"Not found [{byStan.ResponseCode}]");
 ```
+
+On the Ingenico Lane3600, only the last transaction can be reprinted: a duplicate by STAN
+answered CR 381, even for a sale made minutes earlier. Its duplicate holds both copies
+(merchant, then customer marked DUPLICATA) and has no STAN tag; read the STAN from the receipt
+text. To check a pending void on the Lane, call `DuplicateReceiptAsync()` straight away, before
+any other transaction.
 
 **Totals (TM 010)** — the terminal's running totals, as a `Receipt`:
 
@@ -466,11 +495,12 @@ Timeouts and framing, as implemented:
   including the time the cardholder takes at the terminal.
 - `ConfirmationTimeout` (default **40 seconds**) covers TM 102 and TM 104. For a
   void, running out of time gives a `Pending` result instead of an exception.
-- A reply ends at the terminator — `!` (protocol v2, TCP default) or `?` (v1, USB
-  serial default); both are accepted either way — or after **1 second** of silence,
+- A reply ends at a terminator on a field boundary — `!` (protocol v2, the default on
+  both transports) or `?` (v1); both are accepted either way — or after **1 second** of silence,
   because the live terminal sends TM 103/104 without a terminator.
-- Requests are sent without a terminator. Force the version with
-  `new NapsConfig(host: "…", protocolVersion: ProtocolVersion.V1)` if needed.
+- Over TCP, requests are sent without a terminator (the Sunmi's NapsPay app did not answer a
+  `!`-terminated frame). Over USB they end with the version's terminator. Force v1 with
+  `protocolVersion: ProtocolVersion.V1` for a legacy terminal.
 
 ---
 
@@ -534,7 +564,7 @@ copies shown in [Receipts](#receipts-dp-block).
 | CR **909** | System failure — terminal or bank host unavailable. On a void, also returned when TM 004 lacks the amount: the SDK echoes TM 103's amount, falling back to `amountCentimes` — always pass it. |
 | CR **302** | Record not found — wrong STAN, or a transaction from another business day. |
 | CR **482** (or **992** on the live terminal) | Already cancelled. On a retry after a pending void, this means the first void went through. |
-| Void `Pending` | See [How a void works](#how-a-void-works): reprint by STAN with `DuplicateReceiptByStanAsync`, or retry the void and look for "already cancelled". |
+| Void `Pending` | See [How a void works](#how-a-void-works): reprint by STAN with `DuplicateReceiptByStanAsync` (on the Lane3600, `DuplicateReceiptAsync` for the last transaction), or retry the void and look for "already cancelled". |
 | Payment declined with a code you don't recognise | `NapsTlv.DescribeResponse(code)`, or the table in `TlvProtocol.cs`. |
 
 ---

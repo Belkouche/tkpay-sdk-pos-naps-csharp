@@ -267,4 +267,99 @@ public class TlvProtocolTests
     {
         Assert.Equal(expected, TlvProtocol.IsApproved(code));
     }
+
+    [Theory]
+    [InlineData("001003109013003000!", true)]
+    [InlineData("001003109013003000", false)]
+    [InlineData("001003108010012LINE1?LINE2?", false)]          // '?' inside the DP value
+    [InlineData("001003108010012LINE1?LINE2?013003000!", true)]
+    [InlineData("001003108010014MERCI! A BIENT", false)]        // '!' inside the DP value
+    [InlineData("00100", false)]
+    [InlineData("garbage!", true)]                              // non-TLV: trailing terminator
+    [InlineData("garbage", false)]
+    public void IsCompleteMessage_OnlyAtTerminatorOnFieldBoundary(string buf, bool expected) =>
+        Assert.Equal(expected, TlvProtocol.IsCompleteMessage(buf));
+
+    [Fact]
+    public void IsCompleteResponse_WalksOnlyWhenDataEndsWithTerminator_AndCapsSize()
+    {
+        var bytes = (string str) => System.Text.Encoding.UTF8.GetBytes(str).ToList();
+        Assert.True(TlvProtocol.IsCompleteResponse(bytes("001003109013003000!")));
+        Assert.False(TlvProtocol.IsCompleteResponse(bytes("001003109013003000!0")));   // closes on silence
+        Assert.False(TlvProtocol.IsCompleteResponse(bytes("001003108010012LINE1?LINE2?")));
+        var huge = Enumerable.Repeat((byte)'0', TlvProtocol.MaxResponseBytes + 1).ToList();
+        Assert.Throws<TKPay.Naps.Models.NapsException>(() => TlvProtocol.IsCompleteResponse(huge));
+    }
+
+    // A receipt longer than 999 chars, as the Lane3600 sends it: DP declared 999 long.
+    private static readonly string LongDp = string.Concat(Enumerable.Range(0, 25).Select(n =>
+        $"*030002{n:D2}031001S032001G033040{new string('X', 40)}")) + "?";
+    private static readonly string LongFrame = "001003108" + "010999" + LongDp + "013003000" + "!";
+
+    [Fact]
+    public void Parse_DpDeclared999_ReadsWholeReceiptAndFollowingFields()
+    {
+        var fields = TlvProtocol.Parse(LongFrame);
+        Assert.Equal(LongDp, fields[TlvTags.Dp]);
+        Assert.Equal("000", fields[TlvTags.CR]);
+    }
+
+    [Fact]
+    public void IsCompleteMessage_DpDeclared999_WaitsForWholeReceipt()
+    {
+        Assert.False(TlvProtocol.IsCompleteMessage(LongFrame.Substring(0, 1200)));
+        Assert.False(TlvProtocol.IsCompleteMessage(LongFrame.Substring(0, LongFrame.Length - 1)));
+        Assert.True(TlvProtocol.IsCompleteMessage(LongFrame));
+    }
+
+    [Fact]
+    public void Parse_NonAsciiDigitsInHeader_StopsWithoutThrowing()
+    {
+        // Arabic-Indic digits pass char.IsDigit but not int.Parse.
+        var fields = TlvProtocol.Parse("001003109" + "013\u0660\u0660\u0663000!");
+        Assert.Equal("109", fields[TlvTags.Tm]);
+        Assert.False(fields.ContainsKey(TlvTags.CR));
+        Assert.False(TlvProtocol.IsCompleteMessage("013\u0660\u0660\u0663000"));
+    }
+
+    [Fact]
+    public void Parse_NegativeLengthInsideDp_DoesNotThrow()
+    {
+        var frame = "001003108" + TlvProtocol.BuildField(TlvTags.Dp, "033-01X?") + "013003000!";
+        var fields = TlvProtocol.Parse(frame);
+        Assert.Equal("000", fields[TlvTags.CR]);
+        ReceiptParser.Parse(fields[TlvTags.Dp], TKPay.Naps.Models.ReceiptType.Merchant); // must not throw
+    }
+
+    [Fact]
+    public void ByteLengthsToCharLengths_RewritesFieldAndDpSubTagLengths()
+    {
+        // "Copie Commerçé" is 14 chars but 16 UTF-8 bytes; the Lane3600 declares 016.
+        var dp = "*03000201033016Copie Commerçé*03000202033004NEXT?";
+        var dpBytes = System.Text.Encoding.UTF8.GetByteCount(dp);
+        var frame = System.Text.Encoding.UTF8.GetBytes($"001003108010{dpBytes:D3}{dp}013003000!");
+
+        var converted = TlvProtocol.ByteLengthsToCharLengths(TlvProtocol.Latin1.GetString(frame));
+        var fields = TlvProtocol.Parse(converted);
+
+        Assert.Equal(dp.Replace("033016", "033014"), fields[TlvTags.Dp]); // length now in characters
+        Assert.Equal("000", fields[TlvTags.CR]);
+        Assert.Equal(LongFrame, TlvProtocol.ByteLengthsToCharLengths(LongFrame)); // ASCII unchanged
+    }
+
+    [Fact]
+    public void Parse_DpReally999WithoutEndMarker_DoesNotSwallowNextFields()
+    {
+        var dp = "";
+        var n = 0;
+        while (999 - dp.Length > 75) dp += $"*030002{n++ % 100:D2}031001S032001G033040{new string('X', 40)}";
+        var rest = 999 - dp.Length - 7;
+        dp += $"*033{rest:D3}{new string('X', rest)}"; // exactly 999 chars, no end marker
+
+        var fields = TlvProtocol.Parse("001003108" + "010999" + dp + "013003000" + "0070165167940000003315" + "!");
+
+        Assert.Equal(dp, fields[TlvTags.Dp]);
+        Assert.Equal("000", fields[TlvTags.CR]);
+        Assert.Equal("516794******3315", fields[TlvTags.Ncar]);
+    }
 }

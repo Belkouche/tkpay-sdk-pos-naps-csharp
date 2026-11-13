@@ -48,8 +48,9 @@ public class EmulatorVoidIntegrationTests
         Assert.True(r.IsSuccess);
         Assert.Equal("000", r.ResponseCode);
         Assert.NotNull(r.Stan);
+        // Live terminals: TM 103 has no receipt; the TM 104 receipt is the merchant copy.
         Assert.NotNull(r.MerchantReceipt);
-        Assert.NotNull(r.CustomerReceipt);
+        Assert.Null(r.CustomerReceipt);
     }
 
     [EmulatorFact("void_480")]
@@ -64,7 +65,7 @@ public class EmulatorVoidIntegrationTests
     }
 
     [EmulatorFact("void_995")]
-    public async Task Void995_IsPending_KeepsStanAndMerchantReceipt()
+    public async Task Void995_IsPending_KeepsStan()
     {
         var r = await Cancel();
 
@@ -72,11 +73,11 @@ public class EmulatorVoidIntegrationTests
         Assert.False(r.IsSuccess);
         Assert.Equal("995", r.ResponseCode);
         Assert.Equal(Stan, r.Stan);
-        Assert.NotNull(r.MerchantReceipt);
+        Assert.Null(r.MerchantReceipt); // TM 103 carries no receipt on live terminals
     }
 
     [EmulatorFact("void_no_confirm")]
-    public async Task VoidNoConfirm_IsPending_KeepsStanAndMerchantReceipt()
+    public async Task VoidNoConfirm_IsPending_KeepsStan()
     {
         var r = await Cancel();
 
@@ -84,7 +85,7 @@ public class EmulatorVoidIntegrationTests
         Assert.False(r.IsSuccess);
         Assert.Equal("", r.ResponseCode);
         Assert.Equal(Stan, r.Stan);
-        Assert.NotNull(r.MerchantReceipt);
+        Assert.Null(r.MerchantReceipt); // TM 103 carries no receipt on live terminals
     }
 
     [EmulatorFact("void_refuse")]

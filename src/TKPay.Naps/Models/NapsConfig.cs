@@ -62,8 +62,7 @@ public sealed class NapsConfig
 
     /// <summary>
     /// TLV protocol version. Selects the expected response terminator:
-    /// '!' for v2, '?' for v1. When not set explicitly, resolves per transport
-    /// (serial → v1, TCP → v2).
+    /// '!' for v2, '?' for v1. Defaults to v2 on both transports.
     /// </summary>
     public ProtocolVersion ProtocolVersion { get; }
 
@@ -141,7 +140,8 @@ public sealed class NapsConfig
     /// <param name="timeout">Phase-1 timeout (default: 2 minutes).</param>
     /// <param name="confirmationTimeout">Phase-2 timeout (default: 40 seconds).</param>
     /// <param name="protocolVersion">
-    /// TLV protocol version. Leave <c>null</c> to resolve per transport (serial → v1).
+    /// TLV protocol version. Leave <c>null</c> for v2 (the Lane3600 ends every reply with '!');
+    /// set v1 for a legacy terminal.
     /// </param>
     public static NapsConfig Serial(
         string? portName = null,
@@ -154,7 +154,9 @@ public sealed class NapsConfig
     /// <summary>Create a config pointing to localhost (useful for tests).</summary>
     public static NapsConfig Localhost(int port = DefaultPort) => new("127.0.0.1", port);
 
-    /// <summary>Default protocol version for a transport: serial → v1, TCP → v2.</summary>
-    internal static ProtocolVersion ResolveDefaultProtocol(TransportType transport) =>
-        transport == TransportType.UsbSerial ? ProtocolVersion.V1 : ProtocolVersion.V2;
+    /// <summary>
+    /// Default protocol version: v2 on both transports. The Ingenico Lane3600 over USB ends every
+    /// reply with '!' and was only verified with '!'-terminated requests.
+    /// </summary>
+    internal static ProtocolVersion ResolveDefaultProtocol(TransportType transport) => ProtocolVersion.V2;
 }

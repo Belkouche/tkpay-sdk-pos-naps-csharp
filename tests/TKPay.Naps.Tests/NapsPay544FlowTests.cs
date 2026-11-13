@@ -76,30 +76,37 @@ public class NapsPay544FlowTests
         Assert.Equal("000000015000", fields[TlvTags.Mt]);   // echoed verbatim from TM 103
         Assert.Equal("123456", fields[TlvTags.Stan]);
         Assert.Equal("0100001", fields[TlvTags.Ncai]);
-        Assert.Equal("000042", fields[TlvTags.Ns]);         // spec §4.4: 004.NS = 003 sequence
+        Assert.Equal("000042", fields[TlvTags.Ns]);         // spec §4.4: 004.NS = 003 NS
         Assert.False(fields.ContainsKey(TlvTags.Nsa));
         Assert.True(fields.ContainsKey(TlvTags.Da));
         Assert.True(fields.ContainsKey(TlvTags.He));
     }
 
     [Fact]
-    public void CancellationConfirmationRequest_LiveVerifiedFieldOrder()
+    public void CancellationConfirmationRequest_SpecFieldOrder_EchoesTm103()
     {
-        var tlv = TlvProtocol.BuildCancellationConfirmationRequest("123456", "0100001", "000042", "15000");
+        var tlv = TlvProtocol.BuildCancellationConfirmationRequest(
+            "123456", "0100001", "000042", "000000015000", "504", "06112026", "101500");
 
+        // Spec v2 §4.4 order, accepted by the Ingenico Lane3600 (TM 104 CR 000).
         Assert.StartsWith(
-            F("001", "004") + F("002", "15000") + F("008", "123456") + F("003", "0100001") + F("004", "000042") + "014008",
+            F("001", "004") + F("003", "0100001") + F("004", "000042") + F("008", "123456")
+            + F("002", "000000015000") + F("012", "504") + F("018", "06112026") + F("019", "101500") + "014008",
             tlv);
     }
 
     [Fact]
-    public void CancellationRequest_StillUsesTm003()
+    public void CancellationRequest_CarriesNewNs_AndPaymentSequenceInNsa()
     {
-        var fields = TlvProtocol.Parse(
-            TlvProtocol.BuildCancellationRequest("123456", "0100001", "000042", 15000));
+        var tlv = TlvProtocol.BuildCancellationRequest("123456", "0100001", "000099", 15000, "000042");
+        var fields = TlvProtocol.Parse(tlv);
 
         Assert.Equal("003", fields[TlvTags.Tm]);
+        Assert.Equal("000099", fields[TlvTags.Ns]);    // spec §4.3: NS is mandatory; without it the Lane3600 answers CR 307
+        Assert.Equal("000042", fields[TlvTags.Nsa]);
         Assert.Equal("15000", fields[TlvTags.Mt]);
+        Assert.Equal("123456", fields[TlvTags.Stan]);
+        Assert.StartsWith(F("001", "003") + F("003", "0100001") + F("004", "000099") + "014008", tlv);
     }
 
     [Theory]
@@ -113,9 +120,50 @@ public class NapsPay544FlowTests
         Assert.Equal(expected, TlvProtocol.DescribeResponse(code));
     }
 
+    [Fact]
+    public async Task NetworkTestAsync_OverTcp_SendsNothing_ReturnsUnsupported()
+    {
+        // Sunmi NapsPay answers TM 009 with TM 101 / CR 902; a test frame crashed the app.
+        var (port, requests) = StartTerminal(_ => F("001", "109") + F("013", "000"));
+
+        var result = await Client(port).NetworkTestAsync();
+
+        Assert.False(result.Success);
+        Assert.Equal("UNSUPPORTED", result.ResponseCode);
+        using (var c = new System.Net.Sockets.TcpClient()) c.Connect("127.0.0.1", port); // release the fake terminal
+        Assert.Empty(await requests);
+    }
+
     // -------------------------------------------------------------------------
     // Two-phase void
     // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CancelAsync_Tm104ReceiptIsMerchantCopy_WhenTm103HasNone()
+    {
+        // Ingenico Lane3600: TM 103 carries no DP; TM 104 carries the only void receipt.
+        var (port, requests) = StartTerminal(frame =>
+        {
+            var tm = TlvProtocol.Parse(frame)[TlvTags.Tm];
+            return tm switch
+            {
+                "003" => F("001", "103") + F("003", "0100001") + F("013", "000") + F("008", "123456")
+                       + F("002", "000000015000") + F("012", "504")
+                       + F("018", "06112026") + F("019", "101500"),
+                "004" => F("001", "104") + F("003", "0100001") + F("013", "000")
+                       + F("008", "000777") + F("010", Receipt),
+                _ => null
+            };
+        });
+
+        var result = await Client(port).CancelAsync("123456", "01", "00001", "000042", 15000);
+        await requests;
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("000777", result.Stan);
+        Assert.NotNull(result.MerchantReceipt);
+        Assert.Null(result.CustomerReceipt);
+    }
 
     [Fact]
     public async Task CancelAsync_Sends004After103_AndReturnsVoidStanAndReceipts()
@@ -145,12 +193,17 @@ public class NapsPay544FlowTests
         Assert.NotNull(result.CustomerReceipt);
 
         Assert.Equal(2, frames.Count);                 // both phases on one connection
-        Assert.Equal("003", TlvProtocol.Parse(frames[0])[TlvTags.Tm]);
+        var find = TlvProtocol.Parse(frames[0]);
+        Assert.Equal("003", find[TlvTags.Tm]);
+        Assert.Equal("000042", find[TlvTags.Nsa]);         // the payment's sequence
         var confirm = TlvProtocol.Parse(frames[1]);
         Assert.Equal("004", confirm[TlvTags.Tm]);
         Assert.Equal("123456", confirm[TlvTags.Stan]);
-        Assert.Equal("000000015000", confirm[TlvTags.Mt]);  // MT echoed from TM 103
-        Assert.Equal("000042", confirm[TlvTags.Ns]);
+        Assert.Equal("000000015000", confirm[TlvTags.Mt]);  // echoed from TM 103
+        Assert.Equal("504", confirm[TlvTags.DE]);
+        Assert.Equal("06112026", confirm[TlvTags.Datr]);
+        Assert.Equal("101500", confirm[TlvTags.Hetr]);
+        Assert.Equal(find[TlvTags.Ns], confirm[TlvTags.Ns]); // spec §4.4: 004.NS = 003.NS
         Assert.False(confirm.ContainsKey(TlvTags.Nsa));
     }
 

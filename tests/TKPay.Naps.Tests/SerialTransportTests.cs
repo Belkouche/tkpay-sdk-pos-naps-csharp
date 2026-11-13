@@ -85,12 +85,13 @@ public class PortDiscoverySelectionTests
 public class TransportProtocolDefaultTests
 {
     [Fact]
-    public void Serial_DefaultsToV1()
+    public void Serial_DefaultsToV2()
     {
+        // The Lane3600 over USB ends every reply with '!'.
         var config = NapsConfig.Serial();
         Assert.Equal(TransportType.UsbSerial, config.Transport);
-        Assert.Equal(ProtocolVersion.V1, config.ProtocolVersion);
-        Assert.Equal('?', config.Terminator);
+        Assert.Equal(ProtocolVersion.V2, config.ProtocolVersion);
+        Assert.Equal('!', config.Terminator);
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public class TransportProtocolDefaultTests
     }
 
     [Theory]
-    [InlineData(TransportType.UsbSerial, ProtocolVersion.V1)]
+    [InlineData(TransportType.UsbSerial, ProtocolVersion.V2)]
     [InlineData(TransportType.TcpSocket, ProtocolVersion.V2)]
     public void ResolveDefaultProtocol_PerTransport(TransportType transport, ProtocolVersion expected)
     {
@@ -148,4 +149,50 @@ public class TransportProtocolDefaultTests
         var config = NapsConfig.Serial("   ");
         Assert.Null(config.SerialPortName);
     }
+}
+
+public class SerialReadyWaitTests
+{
+    private static readonly DateTime Opened = new(2026, 11, 11, 7, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void FirstFrameWaitsUntilPortOpen32Seconds()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(32), SerialConnection.RemainingWait(Opened, default, Opened, false));
+        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(30), false));
+    }
+
+    [Fact]
+    public void NoWaitOncePortHasBeenOpen32Seconds()
+    {
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddSeconds(32), false));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, default, Opened.AddMinutes(10), false));
+    }
+
+    [Fact]
+    public void ConfirmationWaitsHalfASecondAfterTheLastReply()
+    {
+        var lastRx = Opened.AddSeconds(50);
+        Assert.Equal(TimeSpan.FromMilliseconds(500), SerialConnection.RemainingWait(Opened, lastRx, lastRx, true));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(1), true));
+    }
+
+    [Fact]
+    public void NewOperationWaitsThreeSecondsAfterTheLastReply()
+    {
+        // Lane3600: a TM 003 right after TM 102, or a TM 001 0.5 s after TM 109, was lost.
+        var lastRx = Opened.AddSeconds(50);
+        Assert.Equal(TimeSpan.FromSeconds(3), SerialConnection.RemainingWait(Opened, lastRx, lastRx, false));
+        Assert.Equal(TimeSpan.FromSeconds(2), SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(1), false));
+        Assert.Equal(TimeSpan.Zero, SerialConnection.RemainingWait(Opened, lastRx, lastRx.AddSeconds(3), false));
+    }
+
+    [Theory]
+    [InlineData("001003002003007", true)]
+    [InlineData("001003004003007", true)]
+    [InlineData("001003001002003", false)]
+    [InlineData("001003003003007", false)]
+    [InlineData("001003009003007", false)]
+    public void IsPhase2_OnlyForPaymentAndVoidConfirmations(string frame, bool expected) =>
+        Assert.Equal(expected, SerialConnection.IsPhase2(frame));
 }
