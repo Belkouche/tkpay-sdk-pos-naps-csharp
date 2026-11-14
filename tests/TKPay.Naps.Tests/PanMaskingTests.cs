@@ -171,7 +171,7 @@ public class PanMaskingTests
     }
 
     [Fact]
-    public async Task VoidTotalsReferencingSettlementDuplicate_NoFullNumber()
+    public async Task VoidTotalsReferencingDuplicate_NoFullNumber()
     {
         var reply = (string tm) => F("001", tm) + F("013", "000") + F("008", "123456") + F("007", Pan16) + F("010", Dp);
 
@@ -183,8 +183,6 @@ public class PanMaskingTests
         var totals = await NapsPay544FlowTests.Client(port2).TotalsAsync();
         var (port3, _) = NapsPay544FlowTests.StartTerminal(_ => reply("113"));
         var referencing = await NapsPay544FlowTests.Client(port3).ReferencingAsync();
-        var (port4, _) = NapsPay544FlowTests.StartTerminal(_ => reply("110"));
-        var settlement = await NapsPay544FlowTests.Client(port4).SettlementAsync("01", "00001");
         var (port5, _) = NapsPay544FlowTests.StartTerminal(_ => reply("108"));
         var duplicate = await NapsPay544FlowTests.Client(port5).DuplicateReceiptAsync();
 
@@ -196,7 +194,6 @@ public class PanMaskingTests
                      voidResult.MerchantReceipt.ToPlainText(), voidResult.CustomerReceipt.ToPlainText(),
                      totals.ReceiptText, totals.Receipt.ToPlainText(),
                      referencing.ReceiptText, referencing.Receipt!.ToPlainText(),
-                     settlement.Receipt!.ToPlainText(),
                      duplicate.MaskedCardNumber, duplicate.MerchantReceipt!.ToPlainText(),
                  })
             AssertNoFullNumber(text);

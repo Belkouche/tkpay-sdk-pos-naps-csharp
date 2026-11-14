@@ -2,10 +2,18 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased] — Ingenico Lane3600
+## [1.6.0] — Ingenico Lane3600
 
 Ported from the Node SDK after live testing on a Lane3600 over USB.
 
+- **`SettlementAsync` no longer claims a telecollecte.** It sends nothing and returns
+  `Success = false`, `ResponseCode = "UNSUPPORTED"`. The ECR protocol has no telecollecte
+  message: the spec (v2.0 §4.7) defines TM 010 as the totals ticket. On a live Sunmi P2
+  over USB, TM 010 sent with and without a sequence number returned CR 000 and the same
+  "TOTAL" ticket, with the totals unchanged, so nothing was settled; `SettlementAsync`
+  used to report it as accepted. Run the telecollecte from the terminal menu and use
+  `TotalsAsync()` for the ticket. `SettlementAsync` is `[Obsolete]`. Not checked on an
+  Ingenico Lane3600.
 - **USB serial: payment confirmation no longer lost.** The Lane3600 holds back every
   answer until about 30 s after the port opens. When a payment was the first frame,
   its TM 101 arrived 30 s late, after the terminal had stopped waiting for TM 002: it

@@ -359,19 +359,6 @@ internal static class TlvProtocol
         return msg;
     }
 
-    /// <summary>
-    /// Build settlement request TLV (TM=010 — telecollecte / end-of-day batch).
-    /// </summary>
-    internal static string BuildSettlementRequest(string ncai)
-    {
-        var (date, time) = CurrentDateTime();
-
-        return BuildField(TlvTags.Tm,   TlvTags.MsgSettlementRequest)
-             + BuildField(TlvTags.Ncai, ncai)
-             + BuildField(TlvTags.Da,   date)
-             + BuildField(TlvTags.He,   time);
-    }
-
     // -------------------------------------------------------------------------
     // Management / maintenance requests (TM 008/009/010/012/013)
     // -------------------------------------------------------------------------

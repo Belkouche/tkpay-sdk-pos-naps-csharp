@@ -280,14 +280,11 @@ var totals = await client.TotalsAsync();
 Console.WriteLine(totals.Success ? totals.Receipt?.ToPlainText() : $"Totals failed [{totals.ResponseCode}]");
 ```
 
-**Settlement** — `SettlementAsync` also sends TM 010 (the spec has no separate
-settlement message); it returns `Success`, `ResponseCode`, `Date`, `Time`, `Error`
-and the terminal's `Receipt`:
-
-```csharp
-var settlement = await client.SettlementAsync(registerId: "01", cashierId: "00001");
-Console.WriteLine(settlement.Success ? $"Settled {settlement.Date} {settlement.Time}" : settlement.Error);
-```
+**Telecollecte** — not part of the ECR protocol: run it from the terminal menu. The
+spec (v2.0 §4.7) defines TM 010 as the totals ticket, and a live Sunmi P2 answered TM 010
+with the same totals before and after, so nothing was settled. `SettlementAsync` is
+obsolete: it sends nothing and returns `ResponseCode = "UNSUPPORTED"`. Use `TotalsAsync`
+for the ticket.
 
 **Referencing (TM 013)** — load a parameter set on the terminal: `"01"` merchant
 (default), `"02"` recharge:
@@ -342,7 +339,7 @@ Which copy comes from which message:
 | Declined payment | the decline slip from TM 101, if sent | — |
 | Duplicate (`DuplicateReceiptAsync` / `…ByStanAsync`) | TM 108, as sent | — |
 
-`TotalsResult`, `ReferencingResult` and `SettlementResult` carry the TM 110 / TM 113
+`TotalsResult` and `ReferencingResult` carry the TM 110 / TM 113
 block as `Receipt` (their `ReceiptText` is the same block unparsed).
 
 Printing both copies of a payment:

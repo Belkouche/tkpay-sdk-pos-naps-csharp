@@ -134,6 +134,24 @@ public class NapsPay544FlowTests
         Assert.Empty(await requests);
     }
 
+    [Fact]
+    public async Task SettlementAsync_SendsNothing_ReturnsUnsupported()
+    {
+        // TM 010 is the totals ticket (spec v2.0 §4.7); the protocol has no telecollecte message.
+        var (port, requests) = StartTerminal(_ => F("001", "110") + F("013", "000"));
+
+#pragma warning disable CS0618
+        var result = await Client(port).SettlementAsync("01", "00001");
+#pragma warning restore CS0618
+
+        Assert.False(result.Success);
+        Assert.Equal("UNSUPPORTED", result.ResponseCode);
+        Assert.Equal("Telecollecte is not part of the NapsPay ECR protocol: run it from the terminal menu. "
+                     + "Use TotalsAsync() for the daily totals ticket.", result.Error);
+        using (var c = new System.Net.Sockets.TcpClient()) c.Connect("127.0.0.1", port); // release the fake terminal
+        Assert.Empty(await requests);
+    }
+
     // -------------------------------------------------------------------------
     // Two-phase void
     // -------------------------------------------------------------------------

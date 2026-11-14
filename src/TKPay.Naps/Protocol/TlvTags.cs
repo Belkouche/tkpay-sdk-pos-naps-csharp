@@ -51,11 +51,9 @@ internal static class TlvTags
     internal const string MsgCancellationResponse   = "103";
     internal const string MsgCancellationConfirmationRequest  = "004"; // Phase 2 of a void
     internal const string MsgCancellationConfirmationResponse = "104";
-    internal const string MsgSettlementRequest      = "010";
-    internal const string MsgSettlementResponse     = "110";
     internal const string MsgDuplicateReceipt       = "008"; // Reprint last receipt
     internal const string MsgNetworkTest            = "009"; // Ping / network test
-    internal const string MsgTotals                 = "010"; // Totals report (shares TM with settlement)
+    internal const string MsgTotals                 = "010"; // Totals report
     internal const string MsgResetPinpad            = "012"; // Reset the PIN pad
     internal const string MsgReferencing            = "013"; // Load parameter set (referencement)
 
