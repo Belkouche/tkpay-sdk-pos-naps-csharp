@@ -88,39 +88,19 @@ public sealed class NapsPayClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// Force end-of-day settlement (telecollecte) — TM=010.
-    ///
-    /// <para>
-    /// Sends batch totals to the NAPS server. The terminal must be idle
-    /// ("Attente Caisse") and referencing (TM=013) must have run at least once.
-    /// </para>
-    ///
-    /// <para>
-    /// Common failure codes: "052" = already settled today, "909" = terminal/server down.
-    /// </para>
+    /// Sends nothing and returns <c>ResponseCode = "UNSUPPORTED"</c>. The ECR protocol has no
+    /// telecollecte message: TM 010 is the totals ticket (spec v2.0 §4.7), and a live Sunmi P2
+    /// answered it with the same totals before and after, so nothing was settled.
     /// </summary>
-    /// <param name="registerId">Register ID (2 digits, e.g. "01").</param>
-    /// <param name="cashierId">Cashier ID (5 digits, e.g. "00001").</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    public async Task<SettlementResult> SettlementAsync(
+    /// <param name="registerId">Unused.</param>
+    /// <param name="cashierId">Unused.</param>
+    /// <param name="ct">Unused.</param>
+    [Obsolete("Run the telecollecte from the terminal menu; use TotalsAsync() for the totals ticket.")]
+    public Task<SettlementResult> SettlementAsync(
         string registerId,
         string cashierId,
-        CancellationToken ct = default)
-    {
-        var ncai = registerId + cashierId;
-        var tlv = TlvProtocol.BuildSettlementRequest(ncai);
-
-        await using var conn = await OpenAsync(ct);
-
-        var response = await conn.SendAndReceiveAsync(tlv, _config.Timeout, ct);
-        var fields = TlvProtocol.Parse(response);
-
-        var responseCode = fields.GetValueOrDefault(TlvTags.CR, "");
-
-        return responseCode == TlvTags.RcApproved
-            ? SettlementResult.Accepted(fields)
-            : SettlementResult.Declined(responseCode, ReceiptParser.FromFields(fields, ReceiptType.Merchant));
-    }
+        CancellationToken ct = default) =>
+        Task.FromResult(SettlementResult.Unsupported());
 
     /// <summary>
     /// Cancel (void) a previous transaction — two-phase, on the same connection

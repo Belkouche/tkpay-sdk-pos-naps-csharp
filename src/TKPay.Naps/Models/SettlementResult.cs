@@ -3,7 +3,8 @@ using TKPay.Naps.Protocol;
 namespace TKPay.Naps.Models;
 
 /// <summary>
-/// Result of a TM=010 settlement (telecollecte / end-of-day batch).
+/// Result of the deprecated <see cref="NapsPayClient.SettlementAsync"/>: always
+/// <c>"UNSUPPORTED"</c>, as the ECR protocol has no telecollecte message.
 /// </summary>
 public sealed class SettlementResult
 {
@@ -41,25 +42,6 @@ public sealed class SettlementResult
         Receipt = receipt;
     }
 
-    internal static SettlementResult Accepted(IReadOnlyDictionary<string, string> fields) =>
-        new(
-            success: true,
-            responseCode: fields.GetValueOrDefault(TlvTags.CR, "000"),
-            date: fields.GetValueOrDefault(TlvTags.Da),
-            time: fields.GetValueOrDefault(TlvTags.He),
-            receipt: ReceiptParser.FromFields(fields, ReceiptType.Merchant)
-        );
-
-    internal static SettlementResult Declined(string responseCode, Receipt? receipt = null) =>
-        new(
-            success: false,
-            responseCode: responseCode,
-            receipt: receipt,
-            error: responseCode switch
-            {
-                "052" => "Already settled today",
-                "909" => "Terminal or server is down",
-                _     => $"Settlement failed — code: {responseCode}"
-            }
-        );
+    internal static SettlementResult Unsupported() =>
+        new(success: false, responseCode: "UNSUPPORTED", error: "Telecollecte is not part of the NapsPay ECR protocol: run it from the terminal menu. Use TotalsAsync() for the daily totals ticket.");
 }
